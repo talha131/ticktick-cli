@@ -24,6 +24,7 @@ the Task object's field list. Consult it before assuming.
 | `add <title> --project P [--due ...] [--remind ...]` | Create a task | `POST /open/v1/task` |
 | `complete <task_id>` | Mark task complete | `POST /open/v1/project/{p}/task/{t}/complete` |
 | `remind <task_id> [durations...] [--clear]` | Set reminders | `POST /open/v1/task/{taskId}` |
+| `move <task_id> --to <project>` | Move task to another project | `POST /open/v1/task/move` |
 
 Reminder duration syntax: `15m`, `1h`, `2d`, `at-due`, bare integer
 (minutes). All translate to iCal TRIGGER strings sent to TickTick.
@@ -142,6 +143,7 @@ Currently wrapped:
 - `GET /open/v1/project/{id}/data`
 - `POST /open/v1/task` (create)
 - `POST /open/v1/task/{taskId}` (update — used for reminders)
+- `POST /open/v1/task/move` (move task between projects)
 - `POST /open/v1/project/{projectId}/task/{taskId}/complete`
 
 Documented but not yet wrapped (good follow-ups):
@@ -149,7 +151,6 @@ Documented but not yet wrapped (good follow-ups):
 - `POST /open/v1/task/completed` — list completed tasks by date range
   (fixes the empty `recent` issue)
 - `POST /open/v1/task/filter` — advanced filtering server-side
-- `POST /open/v1/task/move` — move tasks between projects
 - `DELETE /open/v1/project/{projectId}/task/{taskId}` — delete a task
 - Habit + Focus APIs — entirely separate domain; ignore unless asked
 

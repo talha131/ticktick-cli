@@ -2,7 +2,7 @@
 
 A thin wrapper around TickTick's Open API plus a local SQLite mirror.
 
-Subcommands: setup, sync, candidates, recent, add, complete, remind.
+Subcommands: setup, sync, candidates, recent, add, complete, remind, move.
 """
 
 from __future__ import annotations
@@ -308,6 +308,32 @@ def cmd_remind(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_move(args: argparse.Namespace) -> int:
+    """Move a task to a different project via TickTick API and re-sync."""
+    settings = _load_settings_from_home()
+    store = _open_store(settings)
+    from_project_id = _lookup_project_id(store, args.task_id)
+    to_project_id = _resolve_project_id(store, args.to)
+    if from_project_id == to_project_id:
+        sys.stderr.write(
+            f"Task {args.task_id} is already in project {args.to!r}; "
+            f"nothing to do.\n"
+        )
+        return 2
+    client = _build_client()
+    client.move_task(
+        args.task_id,
+        from_project_id=from_project_id,
+        to_project_id=to_project_id,
+    )
+    Syncer(store=store, client=client,
+           excluded_names=settings.filters.excluded_projects_by_name).run()
+    print(json.dumps({"id": args.task_id,
+                      "from_project_id": from_project_id,
+                      "to_project_id": to_project_id}, indent=2))
+    return 0
+
+
 def cmd_complete(args: argparse.Namespace) -> int:
     """Mark a task complete via TickTick API and re-sync."""
     settings = _load_settings_from_home()
@@ -363,6 +389,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_done = sub.add_parser("complete", help="Mark a task complete.")
     p_done.add_argument("task_id")
     p_done.set_defaults(func=cmd_complete)
+
+    p_move = sub.add_parser("move",
+        help="Move a task to a different project.")
+    p_move.add_argument("task_id")
+    p_move.add_argument("--to", required=True,
+        help="Destination project name (case-insensitive) or project id.")
+    p_move.set_defaults(func=cmd_move)
 
     p_remind = sub.add_parser("remind",
         help="Set reminders on an existing task (replaces existing reminders).")

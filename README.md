@@ -156,6 +156,7 @@ Run `ticktick-cli <subcommand> --help` for full options.
 | `add <title> --project <name>` | Create a task. `--project` accepts a name (case-insensitive) or a TickTick project id. Optional: `--content`, `--priority {0,1,3,5}`, `--due <ISO>`, `--remind <duration>` (repeatable). Re-syncs after. |
 | `complete <task_id>` | Mark complete via TickTick's API. Re-syncs. |
 | `remind <task_id> [durations...] [--clear]` | Set reminders on an existing task. Replaces any existing reminders. |
+| `move <task_id> --to <project>` | Move a task to a different project. `--to` accepts a name (case-insensitive) or project id. Errors if the task is already in that project. Re-syncs. |
 
 ### Reminder durations
 
@@ -189,6 +190,9 @@ ticktick-cli remind 6549abcdef0123456789 30m 1h
 
 # Clear all reminders:
 ticktick-cli remind 6549abcdef0123456789 --clear
+
+# Move a task to a different project:
+ticktick-cli move 6549abcdef0123456789 --to Personal
 
 # Read paths:
 ticktick-cli sync
