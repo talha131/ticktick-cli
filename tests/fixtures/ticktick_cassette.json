@@ -1,0 +1,37 @@
+{
+  "projects": [
+    {"id": "p1", "name": "20 GCE / Teaching"},
+    {"id": "p2", "name": "LMS Startup"},
+    {"id": "p3", "name": "Someday"}
+  ],
+  "project_data": {
+    "p1": {
+      "project": {"id": "p1", "name": "20 GCE / Teaching"},
+      "tasks": [
+        {"id": "t1", "title": "Grade ICT quizzes for Section B",
+         "projectId": "p1", "status": 0, "priority": 5,
+         "dueDate": "2026-05-26T00:00:00+0000",
+         "modifiedTime": "2026-05-24T10:00:00+0000"},
+        {"id": "t2", "title": "Prep lecture slides for Friday",
+         "projectId": "p1", "status": 0, "priority": 3,
+         "modifiedTime": "2026-05-24T11:00:00+0000"}
+      ]
+    },
+    "p2": {
+      "project": {"id": "p2", "name": "LMS Startup"},
+      "tasks": [
+        {"id": "t3", "title": "Draft pricing tiers",
+         "projectId": "p2", "status": 0, "priority": 1,
+         "modifiedTime": "2026-05-23T18:00:00+0000"}
+      ]
+    },
+    "p3": {
+      "project": {"id": "p3", "name": "Someday"},
+      "tasks": [
+        {"id": "t4", "title": "Read book on game theory",
+         "projectId": "p3", "status": 0, "priority": 0,
+         "modifiedTime": "2026-05-20T00:00:00+0000"}
+      ]
+    }
+  }
+}
