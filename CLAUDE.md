@@ -21,13 +21,19 @@ the Task object's field list. Consult it before assuming.
 | `sync` | Pull TickTick projects + tasks into local SQLite | `GET /open/v1/project`, `GET /open/v1/project/{id}/data` |
 | `candidates [--limit N]` | JSON of active tasks from local mirror | local SQLite query |
 | `recent [--limit N]` | JSON of recently completed tasks | local SQLite (currently empty — see Known quirks) |
-| `add <title> --project P [--due ...] [--remind ...]` | Create a task | `POST /open/v1/task` |
+| `add <title> --project P [--due ...] [--remind ...] [--repeat RRULE]` | Create a task | `POST /open/v1/task` |
 | `complete <task_id>` | Mark task complete | `POST /open/v1/project/{p}/task/{t}/complete` |
 | `remind <task_id> [durations...] [--clear]` | Set reminders | `POST /open/v1/task/{taskId}` |
 | `move <task_id> --to <project>` | Move task to another project | `POST /open/v1/task/move` |
+| `repeat <task_id> [RRULE] [--clear]` | Set/clear task recurrence | `POST /open/v1/task/{taskId}` |
 
 Reminder duration syntax: `15m`, `1h`, `2d`, `at-due`, bare integer
 (minutes). All translate to iCal TRIGGER strings sent to TickTick.
+
+Recurrence (`--repeat` on `add`, or `repeat` subcommand) is a raw iCal
+RRULE string per RFC 5545 — passed through verbatim, no client-side
+parsing. Examples: `RRULE:FREQ=DAILY;INTERVAL=1`,
+`RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR`.
 
 ## File layout
 

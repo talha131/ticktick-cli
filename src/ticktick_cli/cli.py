@@ -2,7 +2,7 @@
 
 A thin wrapper around TickTick's Open API plus a local SQLite mirror.
 
-Subcommands: setup, sync, candidates, recent, add, complete, remind, move.
+Subcommands: setup, sync, candidates, recent, add, complete, remind, move, repeat.
 """
 
 from __future__ import annotations
@@ -178,6 +178,7 @@ def cmd_candidates(args: argparse.Namespace) -> int:
             "due_date": r["due_date"],
             "start_date": r["start_date"],
             "tags": json.loads(r["tags"]) if r["tags"] else [],
+            "repeat": r["repeat_flag"],
         })
     print(json.dumps(out, indent=2))
     return 0
@@ -263,13 +264,15 @@ def cmd_add(args: argparse.Namespace) -> int:
         priority=args.priority,
         due_date=args.due,
         reminders=reminders,
+        repeat_flag=args.repeat,
     )
     # Refresh mirror so the new task is visible to `candidates` immediately.
     Syncer(store=store, client=client,
            excluded_names=settings.filters.excluded_projects_by_name).run()
     print(json.dumps({"id": created.get("id"), "title": created.get("title"),
                       "project_id": project_id,
-                      "reminders": created.get("reminders", [])}, indent=2))
+                      "reminders": created.get("reminders", []),
+                      "repeat": created.get("repeatFlag")}, indent=2))
     return 0
 
 
@@ -334,6 +337,42 @@ def cmd_move(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_repeat(args: argparse.Namespace) -> int:
+    """Set or clear an iCal RRULE recurrence on an existing task.
+
+    Pass an RRULE string (e.g. 'RRULE:FREQ=DAILY;INTERVAL=1') to set
+    recurrence, or --clear to remove it. The rule is passed through to
+    TickTick verbatim — see RFC 5545 for the full syntax."""
+    settings = _load_settings_from_home()
+    store = _open_store(settings)
+    project_id = _lookup_project_id(store, args.task_id)
+    client = _build_client()
+
+    if args.clear:
+        if args.rrule:
+            sys.stderr.write("Pass either an RRULE or --clear, not both.\n")
+            return 2
+        repeat_flag = ""
+    else:
+        if not args.rrule:
+            sys.stderr.write(
+                "Pass an RRULE (e.g. 'RRULE:FREQ=DAILY;INTERVAL=1') or "
+                "--clear to remove the existing recurrence.\n"
+            )
+            return 2
+        repeat_flag = args.rrule
+
+    updated = client.update_task(
+        args.task_id, project_id=project_id, repeat_flag=repeat_flag
+    )
+    Syncer(store=store, client=client,
+           excluded_names=settings.filters.excluded_projects_by_name).run()
+    print(json.dumps({"id": args.task_id,
+                      "repeat": updated.get("repeatFlag", repeat_flag)},
+                     indent=2))
+    return 0
+
+
 def cmd_complete(args: argparse.Namespace) -> int:
     """Mark a task complete via TickTick API and re-sync."""
     settings = _load_settings_from_home()
@@ -384,6 +423,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Reminder N minutes/hours/days BEFORE the due time. "
              "Examples: '15m', '1h', '2d', 'at-due'. May be passed "
              "multiple times for multiple reminders.")
+    p_add.add_argument("--repeat", default=None, metavar="RRULE",
+        help="Recurrence rule in iCal RRULE format, e.g. "
+             "'RRULE:FREQ=DAILY;INTERVAL=1' or "
+             "'RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR'.")
     p_add.set_defaults(func=cmd_add)
 
     p_done = sub.add_parser("complete", help="Mark a task complete.")
@@ -396,6 +439,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p_move.add_argument("--to", required=True,
         help="Destination project name (case-insensitive) or project id.")
     p_move.set_defaults(func=cmd_move)
+
+    p_repeat = sub.add_parser("repeat",
+        help="Set or clear an iCal RRULE recurrence on a task.")
+    p_repeat.add_argument("task_id")
+    p_repeat.add_argument("rrule", nargs="?",
+        help="iCal RRULE string, e.g. 'RRULE:FREQ=DAILY;INTERVAL=1'.")
+    p_repeat.add_argument("--clear", action="store_true",
+        help="Remove the existing recurrence rule. Cannot combine with an RRULE.")
+    p_repeat.set_defaults(func=cmd_repeat)
 
     p_remind = sub.add_parser("remind",
         help="Set reminders on an existing task (replaces existing reminders).")
