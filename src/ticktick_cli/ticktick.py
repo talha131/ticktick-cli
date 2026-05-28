@@ -103,6 +103,27 @@ class TickTickClient:
         )
         r.raise_for_status()
 
+    def move_task(
+        self,
+        task_id: str,
+        *,
+        from_project_id: str,
+        to_project_id: str,
+    ) -> dict[str, Any]:
+        """POST /open/v1/task/move. The endpoint takes an array of move ops
+        and returns an array of {id, etag} results. We expose the single-task
+        case (the CLI's move verb is one-at-a-time) and return the first
+        element so callers don't have to unwrap a one-item list."""
+        payload = [{
+            "taskId": task_id,
+            "fromProjectId": from_project_id,
+            "toProjectId": to_project_id,
+        }]
+        r = httpx.post(f"{self.base_url}/task/move",
+                       headers=self._headers(), json=payload)
+        r.raise_for_status()
+        return r.json()[0]
+
 
 # ---- iCal TRIGGER helpers --------------------------------------------------
 

@@ -94,3 +94,29 @@ def test_complete_task(httpx_mock) -> None:
     client.complete_task("p1", "t1")  # no return value; no exception = success
     last = httpx_mock.get_request()
     assert last.headers["Authorization"] == "Bearer fake-token"
+
+
+def test_move_task_posts_array_payload(httpx_mock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/move",
+        json=[{"id": "t1", "etag": "abc"}],
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.move_task("t1", from_project_id="p1", to_project_id="p2")
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body == [
+        {"taskId": "t1", "fromProjectId": "p1", "toProjectId": "p2"}
+    ]
+
+
+def test_move_task_returns_first_result(httpx_mock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/move",
+        json=[{"id": "t1", "etag": "abc"}],
+    )
+    client = TickTickClient(auth=StubAuth())
+    result = client.move_task("t1", from_project_id="p1", to_project_id="p2")
+    assert result == {"id": "t1", "etag": "abc"}
