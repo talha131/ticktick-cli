@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   start_date TEXT,
   completed_at TEXT,
   tags TEXT,
+  repeat_flag TEXT,
   updated_at TEXT NOT NULL,
   raw_json TEXT
 );
@@ -66,3 +67,15 @@ class Store:
 
     def init_schema(self) -> None:
         self.conn.executescript(_SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Idempotent ALTER TABLE for columns added after the initial schema.
+
+        SQLite's CREATE TABLE IF NOT EXISTS doesn't add columns to a table
+        that already exists with the old shape, so each new column needs an
+        explicit guarded ALTER here. Keep this short — if migrations get
+        complex, lift to a versioned schema instead."""
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(tasks)")}
+        if "repeat_flag" not in cols:
+            self.conn.execute("ALTER TABLE tasks ADD COLUMN repeat_flag TEXT")

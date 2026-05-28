@@ -54,3 +54,51 @@ def test_idempotent_init(tmp_path: Path) -> None:
     Store(db).init_schema()
     # second open + init should not crash
     Store(db).init_schema()
+
+
+def test_tasks_has_repeat_flag_column(tmp_path: Path) -> None:
+    s = Store(tmp_path / "tasks.db")
+    s.init_schema()
+    cols = {r[1] for r in s.conn.execute("PRAGMA table_info(tasks)")}
+    assert "repeat_flag" in cols
+
+
+def test_repeat_flag_added_to_existing_db_without_column(tmp_path: Path) -> None:
+    """Simulates a pre-migration tasks.db: build the table without the new
+    column, then open with the current Store and confirm the column is
+    added in place without dropping data."""
+    db = tmp_path / "tasks.db"
+    raw = sqlite3.connect(db)
+    raw.execute(
+        "CREATE TABLE tasks ("
+        "  id TEXT PRIMARY KEY,"
+        "  project_id TEXT,"
+        "  title TEXT NOT NULL,"
+        "  content TEXT,"
+        "  status INTEGER NOT NULL,"
+        "  priority INTEGER,"
+        "  due_date TEXT,"
+        "  start_date TEXT,"
+        "  completed_at TEXT,"
+        "  tags TEXT,"
+        "  updated_at TEXT NOT NULL,"
+        "  raw_json TEXT"
+        ")"
+    )
+    raw.execute(
+        "INSERT INTO tasks(id, title, status, updated_at) "
+        "VALUES ('t-old', 'Pre-migration row', 0, '2026-05-01T00:00:00')"
+    )
+    raw.commit()
+    raw.close()
+
+    s = Store(db)
+    s.init_schema()
+    cols = {r[1] for r in s.conn.execute("PRAGMA table_info(tasks)")}
+    assert "repeat_flag" in cols
+    # existing row preserved, new column NULL
+    row = s.conn.execute(
+        "SELECT title, repeat_flag FROM tasks WHERE id='t-old'"
+    ).fetchone()
+    assert row["title"] == "Pre-migration row"
+    assert row["repeat_flag"] is None
