@@ -56,13 +56,15 @@ class Syncer:
                     cur.execute(
                         "INSERT INTO tasks(id, project_id, title, content, status, "
                         "priority, due_date, start_date, completed_at, tags, "
-                        "updated_at, raw_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+                        "repeat_flag, updated_at, raw_json) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
                         "ON CONFLICT(id) DO UPDATE SET "
                         "project_id=excluded.project_id, title=excluded.title, "
                         "content=excluded.content, status=excluded.status, "
                         "priority=excluded.priority, due_date=excluded.due_date, "
                         "start_date=excluded.start_date, "
                         "completed_at=excluded.completed_at, tags=excluded.tags, "
+                        "repeat_flag=excluded.repeat_flag, "
                         "updated_at=excluded.updated_at, raw_json=excluded.raw_json",
                         (
                             t["id"], t.get("projectId", p["id"]),
@@ -71,6 +73,7 @@ class Syncer:
                             t.get("dueDate"), t.get("startDate"),
                             t.get("completedTime"),
                             json.dumps(t.get("tags", [])),
+                            t.get("repeatFlag"),
                             t.get("modifiedTime") or datetime.now(timezone.utc).isoformat(),
                             json.dumps(t),
                         ),

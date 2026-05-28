@@ -96,6 +96,34 @@ def test_sync_empty_project_list_raises_and_does_not_archive(tmp_path: Path) -> 
     assert row["status"] == 0
 
 
+def test_sync_persists_repeat_flag(tmp_path: Path) -> None:
+    """Tasks with a repeatFlag from TickTick land in the local mirror's
+    repeat_flag column. Tasks without one stay NULL."""
+    s = Store(tmp_path / "tasks.db"); s.init_schema()
+    client = _client_returning(
+        projects=[{"id": "p1", "name": "GCE"}],
+        project_data={
+            "p1": {
+                "project": {"id": "p1", "name": "GCE"},
+                "tasks": [
+                    {"id": "t1", "title": "Daily standup", "status": 0,
+                     "projectId": "p1",
+                     "repeatFlag": "RRULE:FREQ=DAILY;INTERVAL=1",
+                     "modifiedTime": "2026-05-24T10:00:00+0000"},
+                    {"id": "t2", "title": "One-shot", "status": 0,
+                     "projectId": "p1",
+                     "modifiedTime": "2026-05-24T10:00:00+0000"},
+                ],
+            }
+        },
+    )
+    Syncer(store=s, client=client, excluded_names=[]).run()
+    rows = {r["id"]: r["repeat_flag"]
+            for r in s.conn.execute("SELECT id, repeat_flag FROM tasks")}
+    assert rows["t1"] == "RRULE:FREQ=DAILY;INTERVAL=1"
+    assert rows["t2"] is None
+
+
 def test_excluded_projects_resolved_to_ids(tmp_path: Path) -> None:
     s = Store(tmp_path / "tasks.db"); s.init_schema()
     client = _client_returning(
