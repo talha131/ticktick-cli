@@ -120,3 +120,72 @@ def test_move_task_returns_first_result(httpx_mock) -> None:
     client = TickTickClient(auth=StubAuth())
     result = client.move_task("t1", from_project_id="p1", to_project_id="p2")
     assert result == {"id": "t1", "etag": "abc"}
+
+
+def test_create_task_includes_repeat_flag(httpx_mock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task",
+        json={"id": "n", "projectId": "p1", "title": "Daily"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.create_task(project_id="p1", title="Daily",
+                       repeat_flag="RRULE:FREQ=DAILY;INTERVAL=1")
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body["repeatFlag"] == "RRULE:FREQ=DAILY;INTERVAL=1"
+
+
+def test_create_task_omits_repeat_flag_when_none(httpx_mock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task",
+        json={"id": "n", "projectId": "p1", "title": "One-shot"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.create_task(project_id="p1", title="One-shot")
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert "repeatFlag" not in body
+
+
+def test_update_task_sets_repeat_flag(httpx_mock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.update_task("t1", project_id="p1",
+                       repeat_flag="RRULE:FREQ=WEEKLY;BYDAY=MO")
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body["repeatFlag"] == "RRULE:FREQ=WEEKLY;BYDAY=MO"
+
+
+def test_update_task_clears_repeat_flag_with_empty_string(httpx_mock) -> None:
+    """Empty string is the explicit 'clear' value, distinct from None
+    (which means 'leave it alone'). Matches the reminders=[] semantics."""
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.update_task("t1", project_id="p1", repeat_flag="")
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body["repeatFlag"] == ""
+
+
+def test_update_task_omits_repeat_flag_when_none(httpx_mock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.update_task("t1", project_id="p1")
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert "repeatFlag" not in body

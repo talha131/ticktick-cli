@@ -47,13 +47,17 @@ class TickTickClient:
         due_date: str | None = None,
         tags: list[str] | None = None,
         reminders: list[str] | None = None,
+        repeat_flag: str | None = None,
     ) -> dict[str, Any]:
         """POST /open/v1/task. Returns the created task as TickTick returns it
         (includes the assigned task id and timestamps).
 
         `reminders` is a list of iCal TRIGGER strings, e.g.
         ["TRIGGER:-PT15M"] for "15 minutes before due". See
-        format_trigger() to build these from a minutes-before integer."""
+        format_trigger() to build these from a minutes-before integer.
+
+        `repeat_flag` is a raw iCal RRULE string, e.g.
+        "RRULE:FREQ=DAILY;INTERVAL=1". Passed through verbatim."""
         payload: dict[str, Any] = {"projectId": project_id, "title": title}
         if content is not None:
             payload["content"] = content
@@ -65,6 +69,8 @@ class TickTickClient:
             payload["tags"] = tags
         if reminders:
             payload["reminders"] = reminders
+        if repeat_flag is not None:
+            payload["repeatFlag"] = repeat_flag
         r = httpx.post(f"{self.base_url}/task", headers=self._headers(),
                        json=payload)
         r.raise_for_status()
@@ -76,16 +82,20 @@ class TickTickClient:
         *,
         project_id: str,
         reminders: list[str] | None = None,
+        repeat_flag: str | None = None,
     ) -> dict[str, Any]:
         """POST /open/v1/task/{taskId}. The body must include `id` and
         `projectId` (TickTick rejects partial updates without them). Any
         other field passed replaces its current value on the server.
 
-        Today we only support setting `reminders`; extend this method as
-        we expose more mutations through the CLI."""
+        For each optional kwarg, `None` means "don't touch this field" and
+        any other value (including `""` or `[]`) is sent through to
+        explicitly set or clear it."""
         payload: dict[str, Any] = {"id": task_id, "projectId": project_id}
         if reminders is not None:
             payload["reminders"] = reminders
+        if repeat_flag is not None:
+            payload["repeatFlag"] = repeat_flag
         r = httpx.post(
             f"{self.base_url}/task/{task_id}",
             headers=self._headers(),
