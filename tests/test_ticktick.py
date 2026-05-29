@@ -96,6 +96,19 @@ def test_complete_task(httpx_mock) -> None:
     assert last.headers["Authorization"] == "Bearer fake-token"
 
 
+def test_delete_task(httpx_mock) -> None:
+    httpx_mock.add_response(
+        method="DELETE",
+        url="https://api.ticktick.com/open/v1/project/p1/task/t1",
+        status_code=200,
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.delete_task("p1", "t1")
+    last = httpx_mock.get_request()
+    assert last.method == "DELETE"
+    assert last.headers["Authorization"] == "Bearer fake-token"
+
+
 def test_move_task_posts_array_payload(httpx_mock) -> None:
     httpx_mock.add_response(
         method="POST",

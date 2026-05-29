@@ -116,6 +116,20 @@ class TickTickClient:
         )
         r.raise_for_status()
 
+    def delete_task(self, project_id: str, task_id: str) -> None:
+        """DELETE /open/v1/project/{project_id}/task/{task_id}. TickTick
+        returns 200 with empty body on success.
+
+        The Open API docs do not specify whether this is a soft delete
+        (moves to Trash) or hard delete. TickTick's UI uses a Trash
+        folder with 30-day retention; the API most likely follows the
+        same path, but it's not contractually guaranteed."""
+        r = httpx.delete(
+            f"{self.base_url}/project/{project_id}/task/{task_id}",
+            headers=self._headers(),
+        )
+        r.raise_for_status()
+
     def move_task(
         self,
         task_id: str,
