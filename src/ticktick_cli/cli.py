@@ -388,11 +388,29 @@ def _merge_tags(existing: list[str], new: list[str]) -> list[str]:
     return out
 
 
+def _resync_mirror(store: Store, settings, client: TickTickClient) -> None:
+    """Run a full Syncer.run() with the project's exclusion settings.
+
+    Pulled out because tag mutations need to sync both before (to avoid
+    overwriting tags added elsewhere) and after (to reflect our write).
+    Keep this trivial — anything more elaborate belongs in sync.py."""
+    Syncer(
+        store=store, client=client,
+        excluded_names=settings.filters.excluded_projects_by_name,
+    ).run()
+
+
 def cmd_tag_add(args: argparse.Namespace) -> int:
-    """Add one or more tags to a task, merging with the task's existing tags."""
+    """Add one or more tags to a task, merging with the task's existing tags.
+
+    Syncs the mirror first so we don't overwrite tags added on another
+    device since the last sync — the API's `update_task` replaces the
+    full tag list, so a stale read here would silently drop newer tags."""
     settings = _load_settings_from_home()
     store = _open_store(settings)
     project_id = _lookup_project_id(store, args.task_id)
+    client = _build_client()
+    _resync_mirror(store, settings, client)
     current = get_task_tags(store, args.task_id)
     new_tags = _merge_tags(current, args.tag)
     if new_tags == current:
@@ -400,20 +418,23 @@ def cmd_tag_add(args: argparse.Namespace) -> int:
         print(json.dumps({"id": args.task_id, "tags": current,
                           "unchanged": True}, indent=2))
         return 0
-    client = _build_client()
     client.update_task(args.task_id, project_id=project_id, tags=new_tags)
-    Syncer(store=store, client=client,
-           excluded_names=settings.filters.excluded_projects_by_name).run()
+    _resync_mirror(store, settings, client)
     print(json.dumps({"id": args.task_id, "tags": new_tags}, indent=2))
     return 0
 
 
 def cmd_tag_remove(args: argparse.Namespace) -> int:
     """Remove one or more tags from a task. No-op (exit 0) if none of the
-    requested tags were on the task."""
+    requested tags were on the task.
+
+    Same pre-sync as cmd_tag_add: prevents the read-modify-write from
+    silently dropping tags added on another device."""
     settings = _load_settings_from_home()
     store = _open_store(settings)
     project_id = _lookup_project_id(store, args.task_id)
+    client = _build_client()
+    _resync_mirror(store, settings, client)
     current = get_task_tags(store, args.task_id)
     if args.ignore_case:
         targets = {t.casefold() for t in args.tag}
@@ -425,10 +446,8 @@ def cmd_tag_remove(args: argparse.Namespace) -> int:
         print(json.dumps({"id": args.task_id, "tags": current,
                           "unchanged": True}, indent=2))
         return 0
-    client = _build_client()
     client.update_task(args.task_id, project_id=project_id, tags=new_tags)
-    Syncer(store=store, client=client,
-           excluded_names=settings.filters.excluded_projects_by_name).run()
+    _resync_mirror(store, settings, client)
     print(json.dumps({"id": args.task_id, "tags": new_tags}, indent=2))
     return 0
 
@@ -466,6 +485,11 @@ def cmd_tag_rename(args: argparse.Namespace) -> int:
         return 2
     settings = _load_settings_from_home()
     store = _open_store(settings)
+    client = _build_client()
+    # Sync first so both the dry-run preview and the actual sweep operate
+    # on the freshest view of the mirror. Without this, a tag could be
+    # renamed off of (or onto) tasks the user wasn't expecting.
+    _resync_mirror(store, settings, client)
     affected = find_tasks_with_tag(store, args.old, ignore_case=args.ignore_case)
     if not affected:
         sys.stderr.write(f"No tasks carry tag {args.old!r}.\n")
@@ -479,7 +503,6 @@ def cmd_tag_rename(args: argparse.Namespace) -> int:
             sys.stderr.write(f"  {t['id']}  {t['title']!r}\n")
         sys.stderr.write("\nRe-run with --apply to perform the rename.\n")
         return 0
-    client = _build_client()
     updated_ids: list[str] = []
     # Sweep is N independent HTTP calls — there's no server-side
     # transaction available. If one fails mid-loop, earlier tasks have
@@ -499,8 +522,7 @@ def cmd_tag_rename(args: argparse.Namespace) -> int:
             client.update_task(t["id"], project_id=t["project_id"], tags=new_tags)
             updated_ids.append(t["id"])
     finally:
-        Syncer(store=store, client=client,
-               excluded_names=settings.filters.excluded_projects_by_name).run()
+        _resync_mirror(store, settings, client)
     print(json.dumps({"renamed_from": args.old, "renamed_to": args.new,
                       "updated_tasks": updated_ids}, indent=2))
     return 0
@@ -516,6 +538,9 @@ def cmd_tag_delete(args: argparse.Namespace) -> int:
     mutated and re-syncs the mirror before raising."""
     settings = _load_settings_from_home()
     store = _open_store(settings)
+    client = _build_client()
+    # See cmd_tag_rename for why we sync before reading from the mirror.
+    _resync_mirror(store, settings, client)
     affected = find_tasks_with_tag(store, args.tag, ignore_case=args.ignore_case)
     if not affected:
         sys.stderr.write(f"No tasks carry tag {args.tag!r}.\n")
@@ -528,7 +553,6 @@ def cmd_tag_delete(args: argparse.Namespace) -> int:
             sys.stderr.write(f"  {t['id']}  {t['title']!r}\n")
         sys.stderr.write("\nRe-run with --apply to perform the removal.\n")
         return 0
-    client = _build_client()
     updated_ids: list[str] = []
     # See cmd_tag_rename — sweep is non-atomic, finally-block guarantees
     # the mirror gets re-synced even if a mid-loop update_task raises.
@@ -542,8 +566,7 @@ def cmd_tag_delete(args: argparse.Namespace) -> int:
             client.update_task(t["id"], project_id=t["project_id"], tags=new_tags)
             updated_ids.append(t["id"])
     finally:
-        Syncer(store=store, client=client,
-               excluded_names=settings.filters.excluded_projects_by_name).run()
+        _resync_mirror(store, settings, client)
     print(json.dumps({"deleted_tag": args.tag,
                       "updated_tasks": updated_ids}, indent=2))
     return 0

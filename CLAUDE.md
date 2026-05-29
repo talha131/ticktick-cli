@@ -61,6 +61,16 @@ then re-raise. Callers should treat any non-zero exit from `tag rename
 --apply` or `tag delete --apply` as "partial application possible —
 inspect the mirror." Don't remove this `finally`.
 
+**All tag mutations sync the mirror twice — once before, once after.**
+`update_task` replaces the server's tag list wholesale; if our read-
+modify-write reads stale local data, tags added on another device
+since the last sync get silently dropped. So `cmd_tag_add` /
+`cmd_tag_remove` / `cmd_tag_rename` / `cmd_tag_delete` all call
+`_resync_mirror()` *before* reading from the mirror, then again
+*after* the write to capture our own mutation. Two `Syncer.run()`
+calls per tag op is the cost of correctness; don't optimize one away
+without a different correctness story.
+
 ## File layout
 
 ```
