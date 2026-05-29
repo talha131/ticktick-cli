@@ -183,8 +183,8 @@ the API. Pass `--apply` to actually perform the operation.
 | Subcommand | Purpose |
 |---|---|
 | `delete <task_id> [--apply]` | Delete a task. TickTick's API doesn't expose trash vs hard-delete behavior; treat as irreversible. |
-| `tag rename <old> <new> [--apply] [--ignore-case]` | Rename a tag across every task that carries it. Global; ignores `excluded_projects_by_name`. |
-| `tag delete <tag> [--apply] [--ignore-case]` | Remove a tag from every task that carries it. Same global semantics as `tag rename`. |
+| `tag rename <old> <new> [--apply] [--ignore-case]` | Rename a tag across the local mirror. Not a true global rename — excluded projects, unsynced tasks, and historical completions are silently missed. Run `sync` first. |
+| `tag delete <tag> [--apply] [--ignore-case]` | Remove a tag across the local mirror. Same scope caveat as `tag rename`. |
 
 ### Reminder durations
 
@@ -240,11 +240,12 @@ ticktick-cli add "Buy milk" --project Personal --tag errand --tag shopping
 ticktick-cli tag add 6549abcdef0123456789 urgent waiting
 ticktick-cli tag remove 6549abcdef0123456789 waiting
 
-# Rename a tag everywhere (dry-run, then apply):
+# Rename a tag across the local mirror (dry-run, then apply):
+# Run `sync` first; excluded projects and unsynced tasks are missed.
 ticktick-cli tag rename old-name new-name           # prints affected tasks
 ticktick-cli tag rename old-name new-name --apply   # performs the rename
 
-# Delete a tag everywhere (dry-run, then apply):
+# Delete a tag across the local mirror (dry-run, then apply):
 ticktick-cli tag delete obsolete-tag                # prints affected tasks
 ticktick-cli tag delete obsolete-tag --apply        # performs the removal
 

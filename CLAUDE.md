@@ -29,8 +29,8 @@ the Task object's field list. Consult it before assuming.
 | `repeat <task_id> [RRULE] [--clear]` | Set/clear task recurrence | `POST /open/v1/task/{taskId}` |
 | `tag add <task_id> <tag>...` | Add tags to a task (merges with existing) | `POST /open/v1/task/{taskId}` |
 | `tag remove <task_id> <tag>... [--ignore-case]` | Remove tags from a task | `POST /open/v1/task/{taskId}` |
-| `tag rename <old> <new> [--apply] [--ignore-case]` | Rename tag globally (dry-run unless --apply) | `POST /open/v1/task/{taskId}` × N |
-| `tag delete <tag> [--apply] [--ignore-case]` | Remove tag globally (dry-run unless --apply) | `POST /open/v1/task/{taskId}` × N |
+| `tag rename <old> <new> [--apply] [--ignore-case]` | Rename tag across the local mirror (dry-run unless --apply) | `POST /open/v1/task/{taskId}` × N |
+| `tag delete <tag> [--apply] [--ignore-case]` | Remove tag across the local mirror (dry-run unless --apply) | `POST /open/v1/task/{taskId}` × N |
 
 Reminder duration syntax: `15m`, `1h`, `2d`, `at-due`, bare integer
 (minutes). All translate to iCal TRIGGER strings sent to TickTick.
@@ -42,12 +42,15 @@ parsing. Examples: `RRULE:FREQ=DAILY;INTERVAL=1`,
 
 Tag operations: `tag add`/`tag remove` are per-task and case-sensitive
 by default (mirrors TickTick — "Work" and "work" are distinct).
-`tag rename` and `tag delete` are global sweeps over the local mirror;
-they print affected tasks and exit without changes unless `--apply` is
-passed. The `excluded_projects_by_name` filter does NOT scope these
-global ops — renaming a tag renames it everywhere. There is no
-TickTick API endpoint for tag rename/delete; both are emulated by
-iterating `update_task` over each affected row.
+`tag rename` and `tag delete` sweep the **local SQLite mirror** — they
+print affected tasks and exit without changes unless `--apply` is
+passed. This is NOT a true global rename: the mirror's coverage is
+the operation's coverage, so excluded projects, tasks the cloud hasn't
+returned since the last sync, and historical completions (which
+`/project/{id}/data` omits entirely) are all silently missed. Run
+`sync` first to maximize coverage. There is no TickTick API endpoint
+for tag rename/delete; both are emulated by iterating `update_task`
+over each row the mirror knows about.
 
 ## File layout
 
