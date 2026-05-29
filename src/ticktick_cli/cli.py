@@ -2,8 +2,8 @@
 
 A thin wrapper around TickTick's Open API plus a local SQLite mirror.
 
-Subcommands: setup, sync, candidates, recent, add, complete, remind, move,
-repeat, tag.
+Subcommands: setup, sync, candidates, recent, add, complete, delete, remind,
+move, repeat, tag.
 """
 
 from __future__ import annotations
@@ -537,6 +537,40 @@ def cmd_complete(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_delete(args: argparse.Namespace) -> int:
+    """Delete a task via TickTick API.
+
+    Dry-run by default: reads the task's project and title from the local
+    mirror, prints a one-line preview to stderr, and exits 0 without
+    contacting the API. Pass --apply to actually delete.
+
+    TickTick most likely moves API-deleted tasks into its Trash folder
+    (30-day retention in the UI), but the Open API docs don't guarantee
+    soft-delete semantics — treat as irreversible from this CLI's POV."""
+    settings = _load_settings_from_home()
+    store = _open_store(settings)
+    project_id = _lookup_project_id(store, args.task_id)
+    row = store.conn.execute(
+        "SELECT title FROM tasks WHERE id = ?", (args.task_id,)
+    ).fetchone()
+    title = row["title"] if row else "<unknown>"
+    if not args.apply:
+        sys.stderr.write(
+            f"Would delete {args.task_id} ({title!r}) from project {project_id}.\n"
+            "Re-run with --apply to perform the deletion.\n"
+            "Note: trash/hard-delete behavior is TickTick's call; the "
+            "Open API has no flag for it.\n"
+        )
+        return 0
+    client = _build_client()
+    client.delete_task(project_id, args.task_id)
+    Syncer(store=store, client=client,
+           excluded_names=settings.filters.excluded_projects_by_name).run()
+    print(json.dumps({"deleted": args.task_id, "title": title,
+                      "project_id": project_id}, indent=2))
+    return 0
+
+
 # ---- entrypoint ------------------------------------------------------------
 
 
@@ -586,6 +620,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_done = sub.add_parser("complete", help="Mark a task complete.")
     p_done.add_argument("task_id")
     p_done.set_defaults(func=cmd_complete)
+
+    p_del = sub.add_parser("delete",
+        help="Delete a task. Dry-run by default; pass --apply to perform.")
+    p_del.add_argument("task_id")
+    p_del.add_argument("--apply", action="store_true",
+        help="Actually perform the deletion. Without --apply this is a "
+             "dry run that prints the task title.")
+    p_del.set_defaults(func=cmd_delete)
 
     p_move = sub.add_parser("move",
         help="Move a task to a different project.")

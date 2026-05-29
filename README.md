@@ -155,6 +155,7 @@ Run `ticktick-cli <subcommand> --help` for full options.
 |---|---|
 | `add <title> --project <name>` | Create a task. `--project` accepts a name (case-insensitive) or a TickTick project id. Optional: `--content`, `--priority {0,1,3,5}`, `--due <ISO>`, `--remind <duration>` (repeatable), `--repeat <RRULE>`, `--tag <name>` (repeatable). Re-syncs after. |
 | `complete <task_id>` | Mark complete via TickTick's API. Re-syncs. |
+| `delete <task_id> [--apply]` | Delete a task. Dry-run by default — prints the task title; pass `--apply` to perform. TickTick's API doesn't expose trash vs hard-delete behavior; treat as irreversible. |
 | `remind <task_id> [durations...] [--clear]` | Set reminders on an existing task. Replaces any existing reminders. |
 | `move <task_id> --to <project>` | Move a task to a different project. `--to` accepts a name (case-insensitive) or project id. Errors if the task is already in that project. Re-syncs. |
 | `repeat <task_id> [RRULE] [--clear]` | Set or clear an iCal RRULE recurrence on a task. Pass through verbatim — see RFC 5545 for syntax. |
@@ -224,6 +225,10 @@ ticktick-cli tag rename old-name new-name --apply   # performs the rename
 # Delete a tag everywhere (dry-run, then apply):
 ticktick-cli tag delete obsolete-tag                # prints affected tasks
 ticktick-cli tag delete obsolete-tag --apply        # performs the removal
+
+# Delete a task (dry-run, then apply):
+ticktick-cli delete 6549abcdef0123456789            # prints task title
+ticktick-cli delete 6549abcdef0123456789 --apply    # performs the deletion
 
 # Read paths:
 ticktick-cli sync

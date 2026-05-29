@@ -23,6 +23,7 @@ the Task object's field list. Consult it before assuming.
 | `recent [--limit N]` | JSON of recently completed tasks | local SQLite (currently empty — see Known quirks) |
 | `add <title> --project P [--due ...] [--remind ...] [--repeat RRULE] [--tag ...]` | Create a task | `POST /open/v1/task` |
 | `complete <task_id>` | Mark task complete | `POST /open/v1/project/{p}/task/{t}/complete` |
+| `delete <task_id> [--apply]` | Delete task (dry-run unless --apply) | `DELETE /open/v1/project/{p}/task/{t}` |
 | `remind <task_id> [durations...] [--clear]` | Set reminders | `POST /open/v1/task/{taskId}` |
 | `move <task_id> --to <project>` | Move task to another project | `POST /open/v1/task/move` |
 | `repeat <task_id> [RRULE] [--clear]` | Set/clear task recurrence | `POST /open/v1/task/{taskId}` |
@@ -117,6 +118,18 @@ ticktick-cli/
 
 ## Known quirks
 
+**`delete` is dry-run by default.** Mirrors the `tag rename`/`tag delete`
+pattern. The Open API doesn't document whether `DELETE
+/open/v1/project/.../task/...` moves to Trash or hard-deletes, and
+there's no flag to control it. Treat as irreversible from the CLI's
+point of view; pass `--apply` to perform.
+
+**TickTick has no "Won't Do" API.** The Open API only documents status
+values `0` (Normal) and `2` (Completed) — see the Task schema in
+`docs/ticktick-openapi.md`. Don't add an `update_task(status=...)`
+path with guesswork values; if a caller needs the distinction, they
+can tag the task and complete it (`tag add <id> wont-do && complete <id>`).
+
 **TickTick does not issue refresh tokens.** Their `/oauth/token`
 response gives only `access_token` + `expires_in` (~180 days).
 Recovery when the token expires: re-run `setup`. Don't reintroduce
@@ -161,16 +174,16 @@ Currently wrapped:
 - `GET /open/v1/project`
 - `GET /open/v1/project/{id}/data`
 - `POST /open/v1/task` (create)
-- `POST /open/v1/task/{taskId}` (update — used for reminders)
+- `POST /open/v1/task/{taskId}` (update — used for reminders, repeat, tags)
 - `POST /open/v1/task/move` (move task between projects)
 - `POST /open/v1/project/{projectId}/task/{taskId}/complete`
+- `DELETE /open/v1/project/{projectId}/task/{taskId}`
 
 Documented but not yet wrapped (good follow-ups):
 - `GET /open/v1/project/{projectId}/task/{taskId}` — fetch a single task
 - `POST /open/v1/task/completed` — list completed tasks by date range
   (fixes the empty `recent` issue)
 - `POST /open/v1/task/filter` — advanced filtering server-side
-- `DELETE /open/v1/project/{projectId}/task/{taskId}` — delete a task
 - Habit + Focus APIs — entirely separate domain; ignore unless asked
 
 ## What NOT to do
