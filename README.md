@@ -150,20 +150,28 @@ Run `ticktick-cli <subcommand> --help` for full options.
 | `candidates [--limit N]` | JSON of active tasks: `status=0`, project not archived, project not in `excluded_projects_by_name`, `start_date` ≤ now. Ordered by priority DESC, due-date ASC with NULLs last. Default limit 60. |
 | `recent [--limit N]` | JSON of last N completed tasks. **Currently always `[]`** — TickTick's `/project/{id}/data` endpoint doesn't return historical completions. The fix is `POST /open/v1/task/completed`, documented in `docs/ticktick-openapi.md` but not yet wrapped. |
 
-### Write
+### Write — per-task, fires immediately
 
 | Subcommand | Purpose |
 |---|---|
 | `add <title> --project <name>` | Create a task. `--project` accepts a name (case-insensitive) or a TickTick project id. Optional: `--content`, `--priority {0,1,3,5}`, `--due <ISO>`, `--remind <duration>` (repeatable), `--repeat <RRULE>`, `--tag <name>` (repeatable). Re-syncs after. |
 | `complete <task_id>` | Mark complete via TickTick's API. Re-syncs. |
-| `delete <task_id> [--apply]` | Delete a task. Dry-run by default — prints the task title; pass `--apply` to perform. TickTick's API doesn't expose trash vs hard-delete behavior; treat as irreversible. |
 | `remind <task_id> [durations...] [--clear]` | Set reminders on an existing task. Replaces any existing reminders. |
 | `move <task_id> --to <project>` | Move a task to a different project. `--to` accepts a name (case-insensitive) or project id. Errors if the task is already in that project. Re-syncs. |
 | `repeat <task_id> [RRULE] [--clear]` | Set or clear an iCal RRULE recurrence on a task. Pass through verbatim — see RFC 5545 for syntax. |
 | `tag add <task_id> <tag>...` | Add one or more tags to a task. Merges with existing tags; duplicates are skipped. |
 | `tag remove <task_id> <tag>... [--ignore-case]` | Remove one or more tags from a task. No-op if the task didn't carry any of them. |
-| `tag rename <old> <new> [--apply] [--ignore-case]` | Rename a tag across every task that carries it. Dry-run by default — prints affected tasks; pass `--apply` to perform. Global; ignores `excluded_projects_by_name`. |
-| `tag delete <tag> [--apply] [--ignore-case]` | Remove a tag from every task that carries it. Dry-run by default; pass `--apply` to perform. Same global semantics as `tag rename`. |
+
+### Write — destructive / global, dry-run by default
+
+These commands print what they *would* do and exit without touching
+the API. Pass `--apply` to actually perform the operation.
+
+| Subcommand | Purpose |
+|---|---|
+| `delete <task_id> [--apply]` | Delete a task. TickTick's API doesn't expose trash vs hard-delete behavior; treat as irreversible. |
+| `tag rename <old> <new> [--apply] [--ignore-case]` | Rename a tag across every task that carries it. Global; ignores `excluded_projects_by_name`. |
+| `tag delete <tag> [--apply] [--ignore-case]` | Remove a tag from every task that carries it. Same global semantics as `tag rename`. |
 
 ### Reminder durations
 
