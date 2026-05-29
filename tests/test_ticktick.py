@@ -135,6 +135,20 @@ def test_move_task_returns_first_result(httpx_mock) -> None:
     assert result == {"id": "t1", "etag": "abc"}
 
 
+def test_move_task_handles_empty_response_array(httpx_mock) -> None:
+    """A 200 with an empty JSON array (transient API quirk, future shape
+    change) must not raise IndexError. The contract for the caller is
+    'returns a dict' — empty dict on no-result is the least surprising."""
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/move",
+        json=[],
+    )
+    client = TickTickClient(auth=StubAuth())
+    result = client.move_task("t1", from_project_id="p1", to_project_id="p2")
+    assert result == {}
+
+
 def test_create_task_includes_repeat_flag(httpx_mock) -> None:
     httpx_mock.add_response(
         method="POST",

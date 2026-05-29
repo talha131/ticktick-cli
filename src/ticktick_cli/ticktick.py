@@ -149,7 +149,11 @@ class TickTickClient:
         r = httpx.post(f"{self.base_url}/task/move",
                        headers=self._headers(), json=payload)
         r.raise_for_status()
-        return r.json()[0]
+        # raise_for_status() only guards HTTP codes; a 200 with an empty
+        # array would still IndexError. Return {} so callers get a
+        # predictable shape regardless of API quirks.
+        data = r.json()
+        return data[0] if data else {}
 
 
 # ---- iCal TRIGGER helpers --------------------------------------------------
