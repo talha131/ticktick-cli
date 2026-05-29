@@ -10,7 +10,8 @@ SQLite mirror of your projects and tasks for fast, scriptable access.
                                        ▼
                         ~/.config/ticktick-cli/cache/tasks.db
 
-       ticktick-cli candidates / recent / add / complete / remind
+       Read     candidates  recent
+       Write    add  complete  delete  remind  move  repeat  tag
                        (reads + mutates the API and mirror)
 ```
 
