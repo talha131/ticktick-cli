@@ -153,11 +153,15 @@ Run `ticktick-cli <subcommand> --help` for full options.
 
 | Subcommand | Purpose |
 |---|---|
-| `add <title> --project <name>` | Create a task. `--project` accepts a name (case-insensitive) or a TickTick project id. Optional: `--content`, `--priority {0,1,3,5}`, `--due <ISO>`, `--remind <duration>` (repeatable), `--repeat <RRULE>`. Re-syncs after. |
+| `add <title> --project <name>` | Create a task. `--project` accepts a name (case-insensitive) or a TickTick project id. Optional: `--content`, `--priority {0,1,3,5}`, `--due <ISO>`, `--remind <duration>` (repeatable), `--repeat <RRULE>`, `--tag <name>` (repeatable). Re-syncs after. |
 | `complete <task_id>` | Mark complete via TickTick's API. Re-syncs. |
 | `remind <task_id> [durations...] [--clear]` | Set reminders on an existing task. Replaces any existing reminders. |
 | `move <task_id> --to <project>` | Move a task to a different project. `--to` accepts a name (case-insensitive) or project id. Errors if the task is already in that project. Re-syncs. |
 | `repeat <task_id> [RRULE] [--clear]` | Set or clear an iCal RRULE recurrence on a task. Pass through verbatim — see RFC 5545 for syntax. |
+| `tag add <task_id> <tag>...` | Add one or more tags to a task. Merges with existing tags; duplicates are skipped. |
+| `tag remove <task_id> <tag>... [--ignore-case]` | Remove one or more tags from a task. No-op if the task didn't carry any of them. |
+| `tag rename <old> <new> [--apply] [--ignore-case]` | Rename a tag across every task that carries it. Dry-run by default — prints affected tasks; pass `--apply` to perform. Global; ignores `excluded_projects_by_name`. |
+| `tag delete <tag> [--apply] [--ignore-case]` | Remove a tag from every task that carries it. Dry-run by default; pass `--apply` to perform. Same global semantics as `tag rename`. |
 
 ### Reminder durations
 
@@ -205,6 +209,21 @@ ticktick-cli repeat 6549abcdef0123456789 "RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR"
 
 # Remove recurrence (make it a one-shot task):
 ticktick-cli repeat 6549abcdef0123456789 --clear
+
+# Create a tagged task:
+ticktick-cli add "Buy milk" --project Personal --tag errand --tag shopping
+
+# Add/remove tags on an existing task:
+ticktick-cli tag add 6549abcdef0123456789 urgent waiting
+ticktick-cli tag remove 6549abcdef0123456789 waiting
+
+# Rename a tag everywhere (dry-run, then apply):
+ticktick-cli tag rename old-name new-name           # prints affected tasks
+ticktick-cli tag rename old-name new-name --apply   # performs the rename
+
+# Delete a tag everywhere (dry-run, then apply):
+ticktick-cli tag delete obsolete-tag                # prints affected tasks
+ticktick-cli tag delete obsolete-tag --apply        # performs the removal
 
 # Read paths:
 ticktick-cli sync

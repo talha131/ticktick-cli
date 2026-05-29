@@ -21,11 +21,15 @@ the Task object's field list. Consult it before assuming.
 | `sync` | Pull TickTick projects + tasks into local SQLite | `GET /open/v1/project`, `GET /open/v1/project/{id}/data` |
 | `candidates [--limit N]` | JSON of active tasks from local mirror | local SQLite query |
 | `recent [--limit N]` | JSON of recently completed tasks | local SQLite (currently empty — see Known quirks) |
-| `add <title> --project P [--due ...] [--remind ...] [--repeat RRULE]` | Create a task | `POST /open/v1/task` |
+| `add <title> --project P [--due ...] [--remind ...] [--repeat RRULE] [--tag ...]` | Create a task | `POST /open/v1/task` |
 | `complete <task_id>` | Mark task complete | `POST /open/v1/project/{p}/task/{t}/complete` |
 | `remind <task_id> [durations...] [--clear]` | Set reminders | `POST /open/v1/task/{taskId}` |
 | `move <task_id> --to <project>` | Move task to another project | `POST /open/v1/task/move` |
 | `repeat <task_id> [RRULE] [--clear]` | Set/clear task recurrence | `POST /open/v1/task/{taskId}` |
+| `tag add <task_id> <tag>...` | Add tags to a task (merges with existing) | `POST /open/v1/task/{taskId}` |
+| `tag remove <task_id> <tag>... [--ignore-case]` | Remove tags from a task | `POST /open/v1/task/{taskId}` |
+| `tag rename <old> <new> [--apply] [--ignore-case]` | Rename tag globally (dry-run unless --apply) | `POST /open/v1/task/{taskId}` × N |
+| `tag delete <tag> [--apply] [--ignore-case]` | Remove tag globally (dry-run unless --apply) | `POST /open/v1/task/{taskId}` × N |
 
 Reminder duration syntax: `15m`, `1h`, `2d`, `at-due`, bare integer
 (minutes). All translate to iCal TRIGGER strings sent to TickTick.
@@ -34,6 +38,15 @@ Recurrence (`--repeat` on `add`, or `repeat` subcommand) is a raw iCal
 RRULE string per RFC 5545 — passed through verbatim, no client-side
 parsing. Examples: `RRULE:FREQ=DAILY;INTERVAL=1`,
 `RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR`.
+
+Tag operations: `tag add`/`tag remove` are per-task and case-sensitive
+by default (mirrors TickTick — "Work" and "work" are distinct).
+`tag rename` and `tag delete` are global sweeps over the local mirror;
+they print affected tasks and exit without changes unless `--apply` is
+passed. The `excluded_projects_by_name` filter does NOT scope these
+global ops — renaming a tag renames it everywhere. There is no
+TickTick API endpoint for tag rename/delete; both are emulated by
+iterating `update_task` over each affected row.
 
 ## File layout
 

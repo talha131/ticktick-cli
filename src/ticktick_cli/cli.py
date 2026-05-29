@@ -2,7 +2,8 @@
 
 A thin wrapper around TickTick's Open API plus a local SQLite mirror.
 
-Subcommands: setup, sync, candidates, recent, add, complete, remind, move, repeat.
+Subcommands: setup, sync, candidates, recent, add, complete, remind, move,
+repeat, tag.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from .candidates import list_candidates
 from .config import load_settings
 from .store import Store
 from .sync import Syncer
+from .tags import find_tasks_with_tag, get_task_tags
 from .ticktick import TickTickClient, format_trigger, parse_duration
 
 
@@ -265,6 +267,7 @@ def cmd_add(args: argparse.Namespace) -> int:
         due_date=args.due,
         reminders=reminders,
         repeat_flag=args.repeat,
+        tags=args.tag if args.tag else None,
     )
     # Refresh mirror so the new task is visible to `candidates` immediately.
     Syncer(store=store, client=client,
@@ -272,7 +275,8 @@ def cmd_add(args: argparse.Namespace) -> int:
     print(json.dumps({"id": created.get("id"), "title": created.get("title"),
                       "project_id": project_id,
                       "reminders": created.get("reminders", []),
-                      "repeat": created.get("repeatFlag")}, indent=2))
+                      "repeat": created.get("repeatFlag"),
+                      "tags": created.get("tags", [])}, indent=2))
     return 0
 
 
@@ -373,6 +377,153 @@ def cmd_repeat(args: argparse.Namespace) -> int:
     return 0
 
 
+def _merge_tags(existing: list[str], new: list[str]) -> list[str]:
+    """Union preserving order: existing first, then unseen newcomers."""
+    seen = set(existing)
+    out = list(existing)
+    for t in new:
+        if t not in seen:
+            out.append(t)
+            seen.add(t)
+    return out
+
+
+def cmd_tag_add(args: argparse.Namespace) -> int:
+    """Add one or more tags to a task, merging with the task's existing tags."""
+    settings = _load_settings_from_home()
+    store = _open_store(settings)
+    project_id = _lookup_project_id(store, args.task_id)
+    current = get_task_tags(store, args.task_id)
+    new_tags = _merge_tags(current, args.tag)
+    if new_tags == current:
+        # All requested tags were already present — no API call needed.
+        print(json.dumps({"id": args.task_id, "tags": current,
+                          "unchanged": True}, indent=2))
+        return 0
+    client = _build_client()
+    client.update_task(args.task_id, project_id=project_id, tags=new_tags)
+    Syncer(store=store, client=client,
+           excluded_names=settings.filters.excluded_projects_by_name).run()
+    print(json.dumps({"id": args.task_id, "tags": new_tags}, indent=2))
+    return 0
+
+
+def cmd_tag_remove(args: argparse.Namespace) -> int:
+    """Remove one or more tags from a task. No-op (exit 0) if none of the
+    requested tags were on the task."""
+    settings = _load_settings_from_home()
+    store = _open_store(settings)
+    project_id = _lookup_project_id(store, args.task_id)
+    current = get_task_tags(store, args.task_id)
+    if args.ignore_case:
+        targets = {t.casefold() for t in args.tag}
+        new_tags = [t for t in current if t.casefold() not in targets]
+    else:
+        targets = set(args.tag)
+        new_tags = [t for t in current if t not in targets]
+    if new_tags == current:
+        print(json.dumps({"id": args.task_id, "tags": current,
+                          "unchanged": True}, indent=2))
+        return 0
+    client = _build_client()
+    client.update_task(args.task_id, project_id=project_id, tags=new_tags)
+    Syncer(store=store, client=client,
+           excluded_names=settings.filters.excluded_projects_by_name).run()
+    print(json.dumps({"id": args.task_id, "tags": new_tags}, indent=2))
+    return 0
+
+
+def _dedup_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for x in items:
+        if x not in seen:
+            out.append(x)
+            seen.add(x)
+    return out
+
+
+def cmd_tag_rename(args: argparse.Namespace) -> int:
+    """Rename a tag across every task that carries it.
+
+    Dry-run by default — prints the affected tasks and exits 0 without
+    touching anything. Pass --apply to actually perform the rename. This
+    operation is global: excluded_projects_by_name (a read-side filter)
+    does NOT scope it. Run `sync` first if the local mirror might be stale."""
+    if args.old == args.new:
+        sys.stderr.write("old and new tag names are identical; nothing to do.\n")
+        return 2
+    settings = _load_settings_from_home()
+    store = _open_store(settings)
+    affected = find_tasks_with_tag(store, args.old, ignore_case=args.ignore_case)
+    if not affected:
+        sys.stderr.write(f"No tasks carry tag {args.old!r}.\n")
+        return 0
+    if not args.apply:
+        sys.stderr.write(
+            f"Would rename {args.old!r} → {args.new!r} on "
+            f"{len(affected)} task(s):\n"
+        )
+        for t in affected:
+            sys.stderr.write(f"  {t['id']}  {t['title']!r}\n")
+        sys.stderr.write("\nRe-run with --apply to perform the rename.\n")
+        return 0
+    client = _build_client()
+    updated_ids: list[str] = []
+    for t in affected:
+        if args.ignore_case:
+            target = args.old.casefold()
+            new_tags = [args.new if x.casefold() == target else x for x in t["tags"]]
+        else:
+            new_tags = [args.new if x == args.old else x for x in t["tags"]]
+        # If the new name already coexisted with the old one on this task,
+        # the substitution produces a duplicate — collapse it.
+        new_tags = _dedup_preserve_order(new_tags)
+        client.update_task(t["id"], project_id=t["project_id"], tags=new_tags)
+        updated_ids.append(t["id"])
+    Syncer(store=store, client=client,
+           excluded_names=settings.filters.excluded_projects_by_name).run()
+    print(json.dumps({"renamed_from": args.old, "renamed_to": args.new,
+                      "updated_tasks": updated_ids}, indent=2))
+    return 0
+
+
+def cmd_tag_delete(args: argparse.Namespace) -> int:
+    """Remove a tag from every task that carries it.
+
+    Same dry-run / --apply discipline as `tag rename`. Global; ignores
+    excluded_projects_by_name."""
+    settings = _load_settings_from_home()
+    store = _open_store(settings)
+    affected = find_tasks_with_tag(store, args.tag, ignore_case=args.ignore_case)
+    if not affected:
+        sys.stderr.write(f"No tasks carry tag {args.tag!r}.\n")
+        return 0
+    if not args.apply:
+        sys.stderr.write(
+            f"Would remove {args.tag!r} from {len(affected)} task(s):\n"
+        )
+        for t in affected:
+            sys.stderr.write(f"  {t['id']}  {t['title']!r}\n")
+        sys.stderr.write("\nRe-run with --apply to perform the removal.\n")
+        return 0
+    client = _build_client()
+    updated_ids: list[str] = []
+    for t in affected:
+        if args.ignore_case:
+            target = args.tag.casefold()
+            new_tags = [x for x in t["tags"] if x.casefold() != target]
+        else:
+            new_tags = [x for x in t["tags"] if x != args.tag]
+        client.update_task(t["id"], project_id=t["project_id"], tags=new_tags)
+        updated_ids.append(t["id"])
+    Syncer(store=store, client=client,
+           excluded_names=settings.filters.excluded_projects_by_name).run()
+    print(json.dumps({"deleted_tag": args.tag,
+                      "updated_tasks": updated_ids}, indent=2))
+    return 0
+
+
 def cmd_complete(args: argparse.Namespace) -> int:
     """Mark a task complete via TickTick API and re-sync."""
     settings = _load_settings_from_home()
@@ -427,6 +578,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Recurrence rule in iCal RRULE format, e.g. "
              "'RRULE:FREQ=DAILY;INTERVAL=1' or "
              "'RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR'.")
+    p_add.add_argument("--tag", action="append", default=[], metavar="TAG",
+        help="Tag to attach to the task. Pass multiple times for "
+             "multiple tags. Tags are case-sensitive on TickTick's side.")
     p_add.set_defaults(func=cmd_add)
 
     p_done = sub.add_parser("complete", help="Mark a task complete.")
@@ -458,6 +612,49 @@ def _build_parser() -> argparse.ArgumentParser:
     p_remind.add_argument("--clear", action="store_true",
         help="Remove all reminders from the task. Cannot combine with durations.")
     p_remind.set_defaults(func=cmd_remind)
+
+    p_tag = sub.add_parser("tag",
+        help="Manage tags: add/remove on a task, rename/delete globally.")
+    tag_sub = p_tag.add_subparsers(dest="tag_action", required=True)
+
+    p_t_add = tag_sub.add_parser("add",
+        help="Add tag(s) to a task (merges with existing).")
+    p_t_add.add_argument("task_id")
+    p_t_add.add_argument("tag", nargs="+",
+        help="One or more tags to add. Duplicates are skipped silently.")
+    p_t_add.set_defaults(func=cmd_tag_add)
+
+    p_t_rm = tag_sub.add_parser("remove",
+        help="Remove tag(s) from a task.")
+    p_t_rm.add_argument("task_id")
+    p_t_rm.add_argument("tag", nargs="+",
+        help="One or more tags to remove.")
+    p_t_rm.add_argument("--ignore-case", action="store_true",
+        help="Match tag names case-insensitively.")
+    p_t_rm.set_defaults(func=cmd_tag_remove)
+
+    p_t_ren = tag_sub.add_parser("rename",
+        help="Rename a tag across every task that carries it.")
+    p_t_ren.add_argument("old", help="Existing tag name.")
+    p_t_ren.add_argument("new", help="New tag name.")
+    p_t_ren.add_argument("--apply", action="store_true",
+        help="Actually perform the rename. Without --apply this is a "
+             "dry run that prints affected tasks.")
+    p_t_ren.add_argument("--ignore-case", action="store_true",
+        help="Match the old tag name case-insensitively (renames every "
+             "capitalization variant).")
+    p_t_ren.set_defaults(func=cmd_tag_rename)
+
+    p_t_del = tag_sub.add_parser("delete",
+        help="Remove a tag from every task that carries it.")
+    p_t_del.add_argument("tag", help="Tag to delete.")
+    p_t_del.add_argument("--apply", action="store_true",
+        help="Actually perform the deletion. Without --apply this is a "
+             "dry run that prints affected tasks.")
+    p_t_del.add_argument("--ignore-case", action="store_true",
+        help="Match tag name case-insensitively (deletes every "
+             "capitalization variant).")
+    p_t_del.set_defaults(func=cmd_tag_delete)
 
     return p
 
