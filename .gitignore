@@ -10,6 +10,10 @@ dist/
 # macOS
 .DS_Store
 
+# Claude Octopus per-project state (runs, results, proof packets)
+# dropped here when /octo:review or /octo:doctor execute from this dir.
+.claude-octopus/
+
 # Defensive: secrets, tokens, and the SQLite cache live at
 # $XDG_CONFIG_HOME/ticktick-cli/ (default ~/.config/ticktick-cli/) by
 # design — outside this repo. These entries protect against accidental
