@@ -122,6 +122,12 @@ ticktick-cli/
   realistic shapes.
 - `monkeypatch.setenv("TICKTICK_CLI_HOME", str(tmp_path))` to isolate
   the config directory.
+- For tests of `cmd_*` handlers, copy the pattern in
+  `tests/test_cli_commands.py`: a `cli_env` fixture writes a faux
+  OAuth token + sets `TICKTICK_CLIENT_ID/SECRET`, a `no_sync` fixture
+  monkeypatches `Syncer.run` to a no-op so tests can pre-populate the
+  mirror directly. Tests that need to verify a sync ran (e.g.
+  finally-block tests) install a counting wrapper instead.
 
 **Code:**
 - Pure functions where possible. I/O at module boundaries.
@@ -140,6 +146,12 @@ ticktick-cli/
 - Each subcommand is `cmd_<name>(args)` returning an exit code (0 OK).
 - Add new subcommands: write the function, then add a
   `sub.add_parser(...)` block in `_build_parser()`.
+- **Destructive or global ops are dry-run by default; `--apply` performs.**
+  `delete`, `tag rename`, `tag delete` all follow this. Dry-run prints
+  the planned action to stderr and makes zero API calls. Pattern fits
+  the scripted-consumer model (CLAUDE.md says callers are scripts /
+  other tools / Claude sessions); a wrong-target invocation is a
+  question, not an outage. Apply this to any new destructive verb.
 
 ## Known quirks
 
