@@ -454,7 +454,13 @@ def cmd_tag_rename(args: argparse.Namespace) -> int:
     represented locally is silently missed: excluded_projects_by_name (a
     read-side filter), tasks the cloud hasn't returned since the last
     sync, and historical completions that the `/project/{id}/data`
-    endpoint doesn't include. Run `sync` first to maximize coverage."""
+    endpoint doesn't include. Run `sync` first to maximize coverage.
+
+    Sweep is N independent HTTP calls. On mid-loop failure, the tasks
+    iterated so far are already mutated on TickTick; the local mirror is
+    re-synced in a finally block so subsequent reads see the partial
+    state. The exception still propagates — the caller should treat any
+    raise from this command as "partial application possible."""
     if args.old == args.new:
         sys.stderr.write("old and new tag names are identical; nothing to do.\n")
         return 2
@@ -475,19 +481,26 @@ def cmd_tag_rename(args: argparse.Namespace) -> int:
         return 0
     client = _build_client()
     updated_ids: list[str] = []
-    for t in affected:
-        if args.ignore_case:
-            target = args.old.casefold()
-            new_tags = [args.new if x.casefold() == target else x for x in t["tags"]]
-        else:
-            new_tags = [args.new if x == args.old else x for x in t["tags"]]
-        # If the new name already coexisted with the old one on this task,
-        # the substitution produces a duplicate — collapse it.
-        new_tags = _dedup_preserve_order(new_tags)
-        client.update_task(t["id"], project_id=t["project_id"], tags=new_tags)
-        updated_ids.append(t["id"])
-    Syncer(store=store, client=client,
-           excluded_names=settings.filters.excluded_projects_by_name).run()
+    # Sweep is N independent HTTP calls — there's no server-side
+    # transaction available. If one fails mid-loop, earlier tasks have
+    # already been mutated on TickTick; the `finally` block ensures the
+    # local mirror still reflects whatever partial state the server now
+    # holds, so subsequent reads aren't lying about it.
+    try:
+        for t in affected:
+            if args.ignore_case:
+                target = args.old.casefold()
+                new_tags = [args.new if x.casefold() == target else x for x in t["tags"]]
+            else:
+                new_tags = [args.new if x == args.old else x for x in t["tags"]]
+            # If the new name already coexisted with the old one on this task,
+            # the substitution produces a duplicate — collapse it.
+            new_tags = _dedup_preserve_order(new_tags)
+            client.update_task(t["id"], project_id=t["project_id"], tags=new_tags)
+            updated_ids.append(t["id"])
+    finally:
+        Syncer(store=store, client=client,
+               excluded_names=settings.filters.excluded_projects_by_name).run()
     print(json.dumps({"renamed_from": args.old, "renamed_to": args.new,
                       "updated_tasks": updated_ids}, indent=2))
     return 0
@@ -498,7 +511,9 @@ def cmd_tag_delete(args: argparse.Namespace) -> int:
 
     Same dry-run / --apply discipline as `tag rename`. Scope is the local
     mirror — see cmd_tag_rename for the full list of what that misses
-    (excluded projects, unsynced tasks, historical completions)."""
+    (excluded projects, unsynced tasks, historical completions). Same
+    partial-application semantics: mid-loop failure leaves earlier tasks
+    mutated and re-syncs the mirror before raising."""
     settings = _load_settings_from_home()
     store = _open_store(settings)
     affected = find_tasks_with_tag(store, args.tag, ignore_case=args.ignore_case)
@@ -515,16 +530,20 @@ def cmd_tag_delete(args: argparse.Namespace) -> int:
         return 0
     client = _build_client()
     updated_ids: list[str] = []
-    for t in affected:
-        if args.ignore_case:
-            target = args.tag.casefold()
-            new_tags = [x for x in t["tags"] if x.casefold() != target]
-        else:
-            new_tags = [x for x in t["tags"] if x != args.tag]
-        client.update_task(t["id"], project_id=t["project_id"], tags=new_tags)
-        updated_ids.append(t["id"])
-    Syncer(store=store, client=client,
-           excluded_names=settings.filters.excluded_projects_by_name).run()
+    # See cmd_tag_rename — sweep is non-atomic, finally-block guarantees
+    # the mirror gets re-synced even if a mid-loop update_task raises.
+    try:
+        for t in affected:
+            if args.ignore_case:
+                target = args.tag.casefold()
+                new_tags = [x for x in t["tags"] if x.casefold() != target]
+            else:
+                new_tags = [x for x in t["tags"] if x != args.tag]
+            client.update_task(t["id"], project_id=t["project_id"], tags=new_tags)
+            updated_ids.append(t["id"])
+    finally:
+        Syncer(store=store, client=client,
+               excluded_names=settings.filters.excluded_projects_by_name).run()
     print(json.dumps({"deleted_tag": args.tag,
                       "updated_tasks": updated_ids}, indent=2))
     return 0

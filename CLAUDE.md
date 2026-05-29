@@ -52,6 +52,15 @@ returned since the last sync, and historical completions (which
 for tag rename/delete; both are emulated by iterating `update_task`
 over each row the mirror knows about.
 
+**Sweep failures are partial, not atomic.** The N `update_task` calls
+are independent; there's no server-side transaction. If one fails
+mid-loop, earlier tasks have already been mutated on TickTick. Both
+sweep commands run the mirror re-sync in a `finally` block so the
+local view reflects whatever partial state the server actually holds,
+then re-raise. Callers should treat any non-zero exit from `tag rename
+--apply` or `tag delete --apply` as "partial application possible —
+inspect the mirror." Don't remove this `finally`.
+
 ## File layout
 
 ```
