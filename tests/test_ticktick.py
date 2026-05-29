@@ -189,3 +189,44 @@ def test_update_task_omits_repeat_flag_when_none(httpx_mock) -> None:
     import json as _json
     body = _json.loads(httpx_mock.get_request().content)
     assert "repeatFlag" not in body
+
+
+def test_update_task_sets_tags(httpx_mock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.update_task("t1", project_id="p1", tags=["urgent", "work"])
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body["tags"] == ["urgent", "work"]
+
+
+def test_update_task_clears_tags_with_empty_list(httpx_mock) -> None:
+    """Empty list explicitly clears all tags. Distinct from None which
+    means 'leave the tags field untouched on the server.'"""
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.update_task("t1", project_id="p1", tags=[])
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body["tags"] == []
+
+
+def test_update_task_omits_tags_when_none(httpx_mock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.update_task("t1", project_id="p1")
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert "tags" not in body

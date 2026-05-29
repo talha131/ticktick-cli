@@ -83,6 +83,7 @@ class TickTickClient:
         project_id: str,
         reminders: list[str] | None = None,
         repeat_flag: str | None = None,
+        tags: list[str] | None = None,
     ) -> dict[str, Any]:
         """POST /open/v1/task/{taskId}. The body must include `id` and
         `projectId` (TickTick rejects partial updates without them). Any
@@ -96,6 +97,8 @@ class TickTickClient:
             payload["reminders"] = reminders
         if repeat_flag is not None:
             payload["repeatFlag"] = repeat_flag
+        if tags is not None:
+            payload["tags"] = tags
         r = httpx.post(
             f"{self.base_url}/task/{task_id}",
             headers=self._headers(),
