@@ -74,6 +74,15 @@ tasks in natural language.
    ticktick-cli --help
    ```
 
+   This creates a snapshot install — `git pull` updates to the source
+   won't be reflected until you re-run `uv tool install --force .`.
+   If you're tracking the repo and want changes to flow through
+   automatically, install it editable instead:
+
+   ```bash
+   uv tool install --force --editable .
+   ```
+
 ### Windows (~5 min)
 
 Run in **PowerShell**.
@@ -131,6 +140,10 @@ Run in **PowerShell**.
    uv tool install .
    ticktick-cli --help
    ```
+
+   This is a snapshot install; re-run `uv tool install --force .` to
+   pick up code changes. For live source updates as you `git pull`,
+   use `uv tool install --force --editable .` instead.
 
 ## Subcommand reference
 
