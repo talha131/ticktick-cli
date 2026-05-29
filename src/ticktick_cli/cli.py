@@ -468,12 +468,11 @@ def cmd_tag_rename(args: argparse.Namespace) -> int:
     Dry-run by default — prints the affected tasks and exits 0 without
     touching anything. Pass --apply to actually perform the rename.
 
-    Scope is the local SQLite mirror, NOT a true global rename. The mirror
-    is the source of truth for which tasks to iterate, so anything not
-    represented locally is silently missed: excluded_projects_by_name (a
-    read-side filter), tasks the cloud hasn't returned since the last
-    sync, and historical completions that the `/project/{id}/data`
-    endpoint doesn't include. Run `sync` first to maximize coverage.
+    Scope is the local SQLite mirror, NOT a true global rename. The
+    command pre-syncs before reading the mirror, so plain staleness is
+    handled automatically — but excluded_projects_by_name (a read-side
+    filter applied during sync) and historical completions (which
+    /project/{id}/data never returns) are permanently invisible.
 
     Sweep is N independent HTTP calls. On mid-loop failure, the tasks
     iterated so far are already mutated on TickTick; the local mirror is
@@ -724,8 +723,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_t_rm.set_defaults(func=cmd_tag_remove)
 
     p_t_ren = tag_sub.add_parser("rename",
-        help="Rename a tag across the local mirror. Run `sync` first; "
-             "excluded projects + unsynced tasks are missed.")
+        help="Rename a tag across the local mirror. Auto-pre-syncs; "
+             "excluded projects + historical completions are missed.")
     p_t_ren.add_argument("old", help="Existing tag name.")
     p_t_ren.add_argument("new", help="New tag name.")
     p_t_ren.add_argument("--apply", action="store_true",
@@ -737,8 +736,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_t_ren.set_defaults(func=cmd_tag_rename)
 
     p_t_del = tag_sub.add_parser("delete",
-        help="Remove a tag across the local mirror. Run `sync` first; "
-             "excluded projects + unsynced tasks are missed.")
+        help="Remove a tag across the local mirror. Auto-pre-syncs; "
+             "excluded projects + historical completions are missed.")
     p_t_del.add_argument("tag", help="Tag to delete.")
     p_t_del.add_argument("--apply", action="store_true",
         help="Actually perform the deletion. Without --apply this is a "

@@ -45,12 +45,14 @@ by default (mirrors TickTick — "Work" and "work" are distinct).
 `tag rename` and `tag delete` sweep the **local SQLite mirror** — they
 print affected tasks and exit without changes unless `--apply` is
 passed. This is NOT a true global rename: the mirror's coverage is
-the operation's coverage, so excluded projects, tasks the cloud hasn't
-returned since the last sync, and historical completions (which
-`/project/{id}/data` omits entirely) are all silently missed. Run
-`sync` first to maximize coverage. There is no TickTick API endpoint
-for tag rename/delete; both are emulated by iterating `update_task`
-over each row the mirror knows about.
+the operation's coverage, so **excluded projects** (filtered during
+sync via `excluded_projects_by_name`) and **historical completions**
+(which `/project/{id}/data` doesn't return at all) are permanently
+invisible regardless of how many syncs you run. There is no TickTick
+API endpoint for tag rename/delete; both are emulated by iterating
+`update_task` over each row the mirror knows about. *Mirror staleness*
+is handled automatically — every tag op pre-syncs (see below) — so
+manual `sync` before tag ops is unnecessary.
 
 **Sweep failures are partial, not atomic.** The N `update_task` calls
 are independent; there's no server-side transaction. If one fails
@@ -133,7 +135,8 @@ ticktick-cli/
 - Read subcommands print JSON. The caller (a script, another tool, a
   Claude session in some other directory) consumes them.
 - Write subcommands re-run `sync` after the write so subsequent reads
-  see the new state.
+  see the new state. Tag mutations also re-sync *before* the write to
+  prevent stale-mirror overwrites — see the tag operations note below.
 - Each subcommand is `cmd_<name>(args)` returning an exit code (0 OK).
 - Add new subcommands: write the function, then add a
   `sub.add_parser(...)` block in `_build_parser()`.

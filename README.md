@@ -172,8 +172,8 @@ Run `ticktick-cli <subcommand> --help` for full options.
 | `remind <task_id> [durations...] [--clear]` | Set reminders on an existing task. Replaces any existing reminders. |
 | `move <task_id> --to <project>` | Move a task to a different project. `--to` accepts a name (case-insensitive) or project id. Errors if the task is already in that project. Re-syncs. |
 | `repeat <task_id> [RRULE] [--clear]` | Set or clear an iCal RRULE recurrence on a task. Pass through verbatim — see RFC 5545 for syntax. |
-| `tag add <task_id> <tag>...` | Add one or more tags to a task. Merges with existing tags; duplicates are skipped. |
-| `tag remove <task_id> <tag>... [--ignore-case]` | Remove one or more tags from a task. No-op if the task didn't carry any of them. |
+| `tag add <task_id> <tag>...` | Add one or more tags to a task. Merges with existing tags (auto-pre-syncs to avoid losing tags added on another device); duplicates are skipped. |
+| `tag remove <task_id> <tag>... [--ignore-case]` | Remove one or more tags from a task. Same pre-sync as `tag add`. No-op if the task didn't carry any of them. |
 
 ### Write — destructive / global, dry-run by default
 
@@ -183,8 +183,8 @@ the API. Pass `--apply` to actually perform the operation.
 | Subcommand | Purpose |
 |---|---|
 | `delete <task_id> [--apply]` | Delete a task. TickTick's API doesn't expose trash vs hard-delete behavior; treat as irreversible. |
-| `tag rename <old> <new> [--apply] [--ignore-case]` | Rename a tag across the local mirror. Not a true global rename — excluded projects, unsynced tasks, and historical completions are silently missed. Run `sync` first. |
-| `tag delete <tag> [--apply] [--ignore-case]` | Remove a tag across the local mirror. Same scope caveat as `tag rename`. |
+| `tag rename <old> <new> [--apply] [--ignore-case]` | Rename a tag across the local mirror. Auto-pre-syncs to avoid stale-data overwrites. Not a true global rename — excluded projects and historical completions are silently missed. |
+| `tag delete <tag> [--apply] [--ignore-case]` | Remove a tag across the local mirror. Same auto-pre-sync + scope caveat as `tag rename`. |
 
 ### Reminder durations
 
@@ -241,7 +241,7 @@ ticktick-cli tag add 6549abcdef0123456789 urgent waiting
 ticktick-cli tag remove 6549abcdef0123456789 waiting
 
 # Rename a tag across the local mirror (dry-run, then apply):
-# Run `sync` first; excluded projects and unsynced tasks are missed.
+# Auto-pre-syncs; excluded projects and historical completions are still missed.
 ticktick-cli tag rename old-name new-name           # prints affected tasks
 ticktick-cli tag rename old-name new-name --apply   # performs the rename
 
