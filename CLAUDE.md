@@ -18,9 +18,9 @@ the Task object's field list. Consult it before assuming.
 | Command | Purpose | Endpoint |
 |---|---|---|
 | `setup` | One-time OAuth via browser callback | `POST /oauth/token` |
-| `sync` | Pull TickTick projects + tasks into local SQLite | `GET /open/v1/project`, `GET /open/v1/project/{id}/data` |
+| `sync` | Pull TickTick projects + tasks (active + recent completions) into local SQLite | `GET /open/v1/project`, `GET /open/v1/project/{id}/data`, `POST /open/v1/task/completed` |
 | `candidates [--limit N]` | JSON of active tasks from local mirror | local SQLite query |
-| `recent [--limit N]` | JSON of recently completed tasks | local SQLite (currently empty — see Known quirks) |
+| `recent [--limit N]` | JSON of recently completed tasks, bounded by `sync.completions_lookback_days` (default 30) | local SQLite query |
 | `add <title> --project P [--due ...] [--remind ...] [--repeat RRULE] [--tag ...]` | Create a task | `POST /open/v1/task` |
 | `complete <task_id>` | Mark task complete | `POST /open/v1/project/{p}/task/{t}/complete` |
 | `delete <task_id> [--apply]` | Delete task (dry-run unless --apply) | `DELETE /open/v1/project/{p}/task/{t}` |
@@ -172,13 +172,16 @@ response gives only `access_token` + `expires_in` (~180 days).
 Recovery when the token expires: re-run `setup`. Don't reintroduce
 the assumption that `d["refresh_token"]` exists.
 
-**TickTick's `/open/v1/project/{id}/data` returns only active tasks.**
-The mirror's `tasks WHERE status=2` table is empty after a normal
-sync, and `recent` returns `[]`. The fix exists in the API but isn't
-implemented yet: **`POST /open/v1/task/completed`** (documented in
-`docs/ticktick-openapi.md` under "List Completed Tasks") returns
-completed tasks for a date range. Wire this in when `recent` becomes
-genuinely useful to you.
+**Completed tasks come from two endpoints, not one.**
+`/open/v1/project/{id}/data` returns only active (status=0) tasks —
+historical completions are served exclusively by
+`POST /open/v1/task/completed`. `Syncer.run()` calls both on every
+sync: actives first, then completions in `[now − N days, now]` where
+N is `sync.completions_lookback_days` (default 30). Completions whose
+project is no longer in `list_projects()` are skipped to avoid FK
+violations on the upsert. The window is configurable but not
+unbounded — completions older than the lookback never enter the
+mirror, and `recent` is bounded by the same window.
 
 **Reminders are iCal TRIGGER strings, relative to the task's due
 time.** Negative duration = before, zero = at, positive = after. Tasks
@@ -213,14 +216,16 @@ Currently wrapped:
 - `POST /open/v1/task` (create)
 - `POST /open/v1/task/{taskId}` (update — used for reminders, repeat, tags)
 - `POST /open/v1/task/move` (move task between projects)
+- `POST /open/v1/task/completed` (list completed tasks for a date range — populates `recent`)
 - `POST /open/v1/project/{projectId}/task/{taskId}/complete`
 - `DELETE /open/v1/project/{projectId}/task/{taskId}`
 
 Documented but not yet wrapped (good follow-ups):
 - `GET /open/v1/project/{projectId}/task/{taskId}` — fetch a single task
-- `POST /open/v1/task/completed` — list completed tasks by date range
-  (fixes the empty `recent` issue)
-- `POST /open/v1/task/filter` — advanced filtering server-side
+- `POST /open/v1/task/filter` — advanced filtering server-side. Closest
+  the Open API gets to "smart lists" — but note it's ad-hoc filtering,
+  NOT a way to enumerate the user's saved Smart Lists or named
+  Filters; those have no API surface.
 - Habit + Focus APIs — entirely separate domain; ignore unless asked
 
 ## What NOT to do
