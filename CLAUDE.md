@@ -18,9 +18,8 @@ estimation, or report generation logic. Those concerns live in a
 separate **task workspace** at `~/Documents/Tasks/` (the caller). When
 a user opens Claude Code there, they get a different CLAUDE.md geared
 toward task management; that session calls `ticktick-cli` as a tool.
-Feature requests bubble up from there — see
-[`memory/feature_request_triage_edit_subcommand.md`](memory/feature_request_triage_edit_subcommand.md)
-for the current one.
+Feature requests bubble up from there — see `memory/` for shipped
+and pending specs.
 
 ## Persistent context — check `memory/` when relevant
 
@@ -38,12 +37,11 @@ Current entries:
   at `github.com/talha131/todolist-optimizer` and holds the
   original spec + plan + design history. Useful if you're asked
   "why did we pick X?".
-- `feature_request_triage_edit_subcommand.md` — full spec for the
-  highest-priority follow-up: extending `update_task` to accept
-  `startDate` and `priority`, adding `ticktick-cli edit` and
-  optionally `ticktick-cli punt`. The workspace agent is waiting
-  on this to make triage verbs ("punt X for 5d", "bump X to
-  high") executable from conversation.
+- `feature_request_triage_edit_subcommand.md` — historical record
+  of the spec that drove the `edit`/`punt`/`bump` subcommands and
+  the `update_task` extension. Shipped 2026-05-30 in commits
+  `9c3bbce..bb56493`. Worth reading if you're asked "why does
+  `punt` exist?" or "why is `bump` name-only?".
 
 ## Subcommand surface
 
@@ -252,7 +250,7 @@ Currently wrapped:
 - `GET /open/v1/project`
 - `GET /open/v1/project/{id}/data`
 - `POST /open/v1/task` (create)
-- `POST /open/v1/task/{taskId}` (update — used for reminders, repeat, tags)
+- `POST /open/v1/task/{taskId}` (update — used for reminders, repeat, tags, title, content, due/start dates, priority)
 - `POST /open/v1/task/move` (move task between projects)
 - `POST /open/v1/task/completed` (list completed tasks for a date range — populates `recent`)
 - `POST /open/v1/project/{projectId}/task/{taskId}/complete`
@@ -260,9 +258,6 @@ Currently wrapped:
 
 Documented but not yet wrapped:
 
-- (None currently — the `update_task` extension shipped on 2026-05-30
-  unblocking `edit`/`punt`/`bump`. See `memory/feature_request_triage_edit_subcommand.md`
-  for the historical request.)
 - `GET /open/v1/project/{projectId}/task/{taskId}` — fetch a single
   task. Low priority; the mirror has most of what we'd need.
 - `POST /open/v1/task/filter` — advanced filtering server-side.

@@ -1,8 +1,17 @@
 ---
 name: Feature request — edit / punt / bump-priority subcommand
-description: The workspace's Claude session needs `startDate` and `priority` mutation on existing tasks. Today only `reminders` flows through `update_task`. Spec'd from a 2026-05-30 workspace review.
+description: Historical — shipped 2026-05-30 in commits 9c3bbce..bb56493. Kept as a record of the workspace-agent triage flow that motivated extending `update_task` and adding `edit`/`punt`/`bump`.
 type: feature_request
+status: shipped
+shipped_on: 2026-05-30
+shipped_in: 9c3bbce..bb56493
 ---
+
+> **Status: shipped 2026-05-30.** The `update_task` extension, `edit`,
+> `punt`, and `bump` subcommands all landed in commits
+> `9c3bbce..bb56493`. The rest of this document is preserved verbatim
+> as the spec that drove the work — useful for "why did we pick this
+> shape?" questions.
 
 Originated from a 2026-05-30 review of the workspace at
 `~/Documents/Tasks/`. The workspace agent needs to execute three
