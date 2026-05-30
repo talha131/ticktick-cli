@@ -17,6 +17,11 @@ _yaml = YAML(typ="safe")
 
 class SyncSettings(BaseModel):
     ttl_minutes: int = 5
+    # Lookback window for POST /open/v1/task/completed. The endpoint
+    # accepts an open-ended range, but pulling more than a month of
+    # completions on every sync is wasteful for the `recent` use case;
+    # widen this if you need deeper history.
+    completions_lookback_days: int = 30
 
 
 class FilterSettings(BaseModel):
