@@ -11,6 +11,43 @@ import httpx
 BASE_URL = "https://api.ticktick.com/open/v1"
 
 
+def build_update_payload(
+    task_id: str,
+    *,
+    project_id: str,
+    title: str | None = None,
+    content: str | None = None,
+    due_date: str | None = None,
+    start_date: str | None = None,
+    priority: int | None = None,
+    reminders: list[str] | None = None,
+    repeat_flag: str | None = None,
+    tags: list[str] | None = None,
+) -> dict[str, Any]:
+    """Construct the JSON body for POST /open/v1/task/{taskId} without
+    sending it. Exposed so dry-run paths in the CLI can preview what
+    `update_task` would PATCH. Follows the same None-means-skip
+    convention — see `update_task` for the field semantics."""
+    payload: dict[str, Any] = {"id": task_id, "projectId": project_id}
+    if title is not None:
+        payload["title"] = title
+    if content is not None:
+        payload["content"] = content
+    if due_date is not None:
+        payload["dueDate"] = due_date
+    if start_date is not None:
+        payload["startDate"] = start_date
+    if priority is not None:
+        payload["priority"] = priority
+    if reminders is not None:
+        payload["reminders"] = reminders
+    if repeat_flag is not None:
+        payload["repeatFlag"] = repeat_flag
+    if tags is not None:
+        payload["tags"] = tags
+    return payload
+
+
 class _AuthLike(Protocol):
     def get_access_token_sync(self) -> str: ...
 
@@ -105,23 +142,18 @@ class TickTickClient:
         in the TickTick UI that a cleared date actually disappears
         (rather than becoming 1970-01-01). If empty-string doesn't
         clear the field server-side, this needs a different strategy."""
-        payload: dict[str, Any] = {"id": task_id, "projectId": project_id}
-        if title is not None:
-            payload["title"] = title
-        if content is not None:
-            payload["content"] = content
-        if due_date is not None:
-            payload["dueDate"] = due_date
-        if start_date is not None:
-            payload["startDate"] = start_date
-        if priority is not None:
-            payload["priority"] = priority
-        if reminders is not None:
-            payload["reminders"] = reminders
-        if repeat_flag is not None:
-            payload["repeatFlag"] = repeat_flag
-        if tags is not None:
-            payload["tags"] = tags
+        payload = build_update_payload(
+            task_id,
+            project_id=project_id,
+            title=title,
+            content=content,
+            due_date=due_date,
+            start_date=start_date,
+            priority=priority,
+            reminders=reminders,
+            repeat_flag=repeat_flag,
+            tags=tags,
+        )
         r = httpx.post(
             f"{self.base_url}/task/{task_id}",
             headers=self._headers(),
