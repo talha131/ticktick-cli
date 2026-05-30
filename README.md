@@ -161,7 +161,7 @@ Run `ticktick-cli <subcommand> --help` for full options.
 | Subcommand | Purpose |
 |---|---|
 | `candidates [--limit N]` | JSON of active tasks: `status=0`, project not archived, project not in `excluded_projects_by_name`, `start_date` ≤ now. Ordered by priority DESC, due-date ASC with NULLs last. Default limit 60. |
-| `recent [--limit N]` | JSON of last N completed tasks. **Currently always `[]`** — TickTick's `/project/{id}/data` endpoint doesn't return historical completions. The fix is `POST /open/v1/task/completed`, documented in `docs/ticktick-openapi.md` but not yet wrapped. |
+| `recent [--limit N]` | JSON of last N completed tasks, populated by `sync` via `POST /open/v1/task/completed`. The window is bounded by `sync.completions_lookback_days` (30 days by default); completions older than the lookback don't enter the mirror. Default limit 10. |
 
 ### Write — per-task, fires immediately
 
@@ -270,6 +270,13 @@ sync:
   # How long the local SQLite mirror is considered fresh before a
   # read triggers an inline re-sync.
   ttl_minutes: 5
+
+  # Lookback window for the completed-tasks fetch during sync. Every
+  # `sync` pulls completions in [now - N days, now] via
+  # POST /open/v1/task/completed, which is what populates `recent`.
+  # Widen this if you want deeper history in `recent`; set to 0 to
+  # skip the call entirely.
+  completions_lookback_days: 30
 
 filters:
   # Project names (case-insensitive) whose tasks should NOT appear in
