@@ -22,7 +22,12 @@ from .dates import parse_when
 from .store import Store
 from .sync import Syncer
 from .tags import find_tasks_with_tag, get_task_tags
-from .ticktick import TickTickClient, format_trigger, parse_duration
+from .ticktick import (
+    TickTickClient,
+    build_update_payload,
+    format_trigger,
+    parse_duration,
+)
 
 
 def _home() -> Path:
@@ -382,6 +387,18 @@ def cmd_edit(args: argparse.Namespace) -> int:
     settings = _load_settings_from_home()
     store = _open_store(settings)
     project_id = _lookup_project_id(store, args.task_id)
+    if args.dry_run:
+        payload = build_update_payload(
+            args.task_id,
+            project_id=project_id,
+            title=title,
+            content=content,
+            due_date=due_date,
+            start_date=start_date,
+            priority=priority,
+        )
+        print(json.dumps(payload, indent=2))
+        return 0
     client = _build_client()
     updated = client.update_task(
         args.task_id,
@@ -423,6 +440,12 @@ def cmd_punt(args: argparse.Namespace) -> int:
     settings = _load_settings_from_home()
     store = _open_store(settings)
     project_id = _lookup_project_id(store, args.task_id)
+    if args.dry_run:
+        payload = build_update_payload(
+            args.task_id, project_id=project_id, start_date=start_iso,
+        )
+        print(json.dumps(payload, indent=2))
+        return 0
     client = _build_client()
     client.update_task(
         args.task_id, project_id=project_id, start_date=start_iso,
@@ -441,6 +464,12 @@ def cmd_bump(args: argparse.Namespace) -> int:
     settings = _load_settings_from_home()
     store = _open_store(settings)
     project_id = _lookup_project_id(store, args.task_id)
+    if args.dry_run:
+        payload = build_update_payload(
+            args.task_id, project_id=project_id, priority=priority,
+        )
+        print(json.dumps(payload, indent=2))
+        return 0
     client = _build_client()
     client.update_task(
         args.task_id, project_id=project_id, priority=priority,
@@ -852,6 +881,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p_edit.add_argument("--priority", default=None, type=_parse_priority,
         metavar="P",
         help="One of: none, low, medium, high — or numeric 0/1/3/5.")
+    p_edit.add_argument("--dry-run", dest="dry_run", action="store_true",
+        help="Print the PATCH body that would be sent to TickTick as JSON "
+             "and exit without making the API call or re-syncing the mirror.")
     p_edit.set_defaults(func=cmd_edit)
 
     p_punt = sub.add_parser("punt",
@@ -859,6 +891,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_punt.add_argument("task_id")
     p_punt.add_argument("when",
         help="ISO 8601, '+7d', 'monday', etc. — same grammar as `edit --start`.")
+    p_punt.add_argument("--dry-run", dest="dry_run", action="store_true",
+        help="Preview the PATCH body without calling the API. See `edit --dry-run`.")
     p_punt.set_defaults(func=cmd_punt)
 
     p_bump = sub.add_parser("bump",
@@ -866,6 +900,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_bump.add_argument("task_id")
     p_bump.add_argument("level", choices=list(_PRIORITY_NAMES),
         help="Priority level: none, low, medium, or high.")
+    p_bump.add_argument("--dry-run", dest="dry_run", action="store_true",
+        help="Preview the PATCH body without calling the API. See `edit --dry-run`.")
     p_bump.set_defaults(func=cmd_bump)
 
     p_remind = sub.add_parser("remind",

@@ -334,6 +334,24 @@ def test_edit_resyncs_after_write(store, monkeypatch, httpx_mock) -> None:
     assert len(sync_calls) == 1
 
 
+def test_edit_dry_run_prints_payload_without_api_call_or_sync(
+    store, monkeypatch, httpx_mock, capsys
+) -> None:
+    """--dry-run prints the PATCH body as JSON to stdout and short-
+    circuits before any HTTP call or post-write Syncer.run(). The
+    absence of httpx_mock.add_response() means any escaped request
+    would raise — that's the no-API-call assertion."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    sync_calls = []
+    monkeypatch.setattr(Syncer, "run", lambda self: sync_calls.append(1))
+
+    assert _run(["edit", "t1", "--title", "Renamed", "--dry-run"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"id": "t1", "projectId": "p1", "title": "Renamed"}
+    assert sync_calls == []
+
+
 # ---- cmd_punt ---------------------------------------------------------------
 
 
@@ -401,6 +419,23 @@ def test_punt_resyncs_after_write(store, monkeypatch, httpx_mock) -> None:
     assert len(sync_calls) == 1
 
 
+def test_punt_dry_run_prints_payload_without_api_call_or_sync(
+    store, monkeypatch, httpx_mock, capsys
+) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    sync_calls = []
+    monkeypatch.setattr(Syncer, "run", lambda self: sync_calls.append(1))
+
+    assert _run(["punt", "t1", "7d", "--dry-run"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert set(payload.keys()) == {"id", "projectId", "startDate"}
+    assert payload["id"] == "t1"
+    assert payload["projectId"] == "p1"
+    assert payload["startDate"]  # non-empty parsed ISO date
+    assert sync_calls == []
+
+
 # ---- cmd_bump ---------------------------------------------------------------
 
 
@@ -465,6 +500,20 @@ def test_bump_unknown_task_exits_2(store, no_sync, capsys) -> None:
     with pytest.raises(SystemExit) as exc_info:
         _run(["bump", "missing-id", "high"])
     assert exc_info.value.code == 2
+
+
+def test_bump_dry_run_prints_payload_without_api_call_or_sync(
+    store, monkeypatch, httpx_mock, capsys
+) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    sync_calls = []
+    monkeypatch.setattr(Syncer, "run", lambda self: sync_calls.append(1))
+
+    assert _run(["bump", "t1", "high", "--dry-run"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"id": "t1", "projectId": "p1", "priority": 5}
+    assert sync_calls == []
 
 
 # ---- cmd_delete -------------------------------------------------------------
