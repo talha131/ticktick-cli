@@ -308,6 +308,15 @@ def test_edit_unknown_task_exits_2(store, no_sync, capsys) -> None:
     assert exc_info.value.code == 2
 
 
+def test_edit_rejects_garbage_date(store, no_sync, capsys) -> None:
+    """Malformed --due / --start should exit 2 with a clean stderr,
+    not a Python traceback. Mirrors cmd_punt's parse error handling."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    assert _run(["edit", "t1", "--due", "flarble"]) == 2
+    assert "cannot parse" in capsys.readouterr().err.lower()
+
+
 def test_edit_resyncs_after_write(store, monkeypatch, httpx_mock) -> None:
     """A successful edit triggers exactly one Syncer.run() afterwards,
     matching the discipline of cmd_remind / cmd_repeat."""
@@ -363,6 +372,33 @@ def test_punt_rejects_garbage(store, no_sync, capsys) -> None:
     # parse_when raises ValueError → handler turns it into exit 2.
     assert _run(["punt", "t1", "flarble"]) == 2
     assert "cannot parse" in capsys.readouterr().err.lower()
+
+
+def test_punt_unknown_task_exits_2(store, no_sync, capsys) -> None:
+    """_lookup_project_id exits 2 if the task isn't in the mirror —
+    mirrors test_edit_unknown_task_exits_2."""
+    _seed_project(store, "p1", "Work")
+    # No task seeded.
+    with pytest.raises(SystemExit) as exc_info:
+        _run(["punt", "missing-id", "7d"])
+    assert exc_info.value.code == 2
+
+
+def test_punt_resyncs_after_write(store, monkeypatch, httpx_mock) -> None:
+    """A successful punt triggers exactly one Syncer.run() afterwards,
+    matching the discipline of cmd_edit / cmd_remind / cmd_repeat."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    sync_calls = []
+    monkeypatch.setattr(Syncer, "run",
+                        lambda self: sync_calls.append(1))
+    assert _run(["punt", "t1", "7d"]) == 0
+    assert len(sync_calls) == 1
 
 
 # ---- cmd_delete -------------------------------------------------------------

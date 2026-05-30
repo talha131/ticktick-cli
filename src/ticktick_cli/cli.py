@@ -360,12 +360,16 @@ def cmd_edit(args: argparse.Namespace) -> int:
 
     title = args.title
     content = args.content
-    due_date = "" if args.clear_due else (
-        parse_when(args.due) if args.due else None
-    )
-    start_date = "" if args.clear_start else (
-        parse_when(args.start) if args.start else None
-    )
+    try:
+        due_date = "" if args.clear_due else (
+            parse_when(args.due) if args.due else None
+        )
+        start_date = "" if args.clear_start else (
+            parse_when(args.start) if args.start else None
+        )
+    except ValueError as e:
+        sys.stderr.write(f"{e}\n")
+        return 2
     priority = args.priority
 
     if all(v is None for v in (title, content, due_date, start_date, priority)):
@@ -411,7 +415,7 @@ def cmd_punt(args: argparse.Namespace) -> int:
     The WHEN argument is the same grammar as `edit --start` — see
     dates.parse_when."""
     try:
-        start_iso = parse_when(args.duration)
+        start_iso = parse_when(args.when)
     except ValueError as e:
         sys.stderr.write(f"{e}\n")
         return 2
@@ -834,8 +838,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_punt = sub.add_parser("punt",
         help="Push a task's start date forward (hide it from views until WHEN).")
     p_punt.add_argument("task_id")
-    p_punt.add_argument("duration", metavar="WHEN",
-        help="Same grammar as `edit --start`: ISO 8601, '+7d', 'monday', etc.")
+    p_punt.add_argument("when",
+        help="ISO 8601, '+7d', 'monday', etc. — same grammar as `edit --start`.")
     p_punt.set_defaults(func=cmd_punt)
 
     p_remind = sub.add_parser("remind",
