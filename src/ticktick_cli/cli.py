@@ -328,7 +328,7 @@ def cmd_add(args: argparse.Namespace) -> int:
         tags=args.tag if args.tag else None,
     )
     # Refresh mirror so the new task is visible to `candidates` immediately.
-    _resync_mirror(store, settings, client)
+    _resync_mirror_safe(store, settings, client)
     print(json.dumps({"id": created.get("id"), "title": created.get("title"),
                       "project_id": project_id,
                       "reminders": created.get("reminders", []),
@@ -364,7 +364,7 @@ def cmd_remind(args: argparse.Namespace) -> int:
         args.task_id, project_id=project_id, reminders=triggers
     )
     # Re-sync so the mirror reflects the new reminder array.
-    _resync_mirror(store, settings, client)
+    _resync_mirror_safe(store, settings, client)
     print(json.dumps({"id": args.task_id,
                       "reminders": updated.get("reminders", triggers)},
                      indent=2))
@@ -434,7 +434,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
         start_date=start_date,
         priority=priority,
     )
-    _resync_mirror(store, settings, client)
+    _resync_mirror_safe(store, settings, client)
     if args.full:
         print(json.dumps(updated, indent=2))
     else:
@@ -476,7 +476,7 @@ def cmd_punt(args: argparse.Namespace) -> int:
     updated = client.update_task(
         args.task_id, project_id=project_id, start_date=start_iso,
     )
-    _resync_mirror(store, settings, client)
+    _resync_mirror_safe(store, settings, client)
     if args.full:
         print(json.dumps(updated, indent=2))
     else:
@@ -504,7 +504,7 @@ def cmd_bump(args: argparse.Namespace) -> int:
     updated = client.update_task(
         args.task_id, project_id=project_id, priority=priority,
     )
-    _resync_mirror(store, settings, client)
+    _resync_mirror_safe(store, settings, client)
     if args.full:
         print(json.dumps(updated, indent=2))
     else:
@@ -531,7 +531,7 @@ def cmd_move(args: argparse.Namespace) -> int:
         from_project_id=from_project_id,
         to_project_id=to_project_id,
     )
-    _resync_mirror(store, settings, client)
+    _resync_mirror_safe(store, settings, client)
     print(json.dumps({"id": args.task_id,
                       "from_project_id": from_project_id,
                       "to_project_id": to_project_id}, indent=2))
@@ -566,7 +566,7 @@ def cmd_repeat(args: argparse.Namespace) -> int:
     updated = client.update_task(
         args.task_id, project_id=project_id, repeat_flag=repeat_flag
     )
-    _resync_mirror(store, settings, client)
+    _resync_mirror_safe(store, settings, client)
     print(json.dumps({"id": args.task_id,
                       "repeat": updated.get("repeatFlag", repeat_flag)},
                      indent=2))
@@ -589,12 +589,38 @@ def _resync_mirror(store: Store, settings, client: TickTickClient) -> None:
 
     Pulled out because tag mutations need to sync both before (to avoid
     overwriting tags added elsewhere) and after (to reflect our write).
-    Keep this trivial — anything more elaborate belongs in sync.py."""
+    Keep this trivial — anything more elaborate belongs in sync.py.
+
+    Failures propagate. Use this for pre-write call sites where stale
+    mirror data would corrupt the write — see `_resync_mirror_safe`
+    for the post-write variant where mirror staleness is recoverable."""
     Syncer(
         store=store, client=client,
         excluded_names=settings.filters.excluded_projects_by_name,
         completions_lookback_days=settings.sync.completions_lookback_days,
     ).run()
+
+
+def _resync_mirror_safe(store: Store, settings, client: TickTickClient) -> None:
+    """Post-write mirror sync that downgrades failures to a stderr warning.
+
+    The contract for *post-write* refreshes is different from pre-write:
+    the server already has the user's data, so a sync failure here only
+    means the local mirror lags reality until the next manual `sync`.
+    Bubbling the exception would turn a successful write into a non-zero
+    exit and confuse scripted callers about whether the write happened.
+    So we eat the exception, write one line to stderr, and return as if
+    successful. Pre-write call sites must keep using `_resync_mirror`
+    directly — staleness there means the write itself silently drops
+    data from other devices."""
+    try:
+        _resync_mirror(store, settings, client)
+    except Exception as exc:
+        sys.stderr.write(
+            f"warning: post-write mirror sync failed ({exc!s}); "
+            "the write itself succeeded — run `ticktick-cli sync` to "
+            "refresh local state.\n"
+        )
 
 
 def cmd_tag_add(args: argparse.Namespace) -> int:
@@ -616,7 +642,7 @@ def cmd_tag_add(args: argparse.Namespace) -> int:
                           "unchanged": True}, indent=2))
         return 0
     client.update_task(args.task_id, project_id=project_id, tags=new_tags)
-    _resync_mirror(store, settings, client)
+    _resync_mirror_safe(store, settings, client)
     print(json.dumps({"id": args.task_id, "tags": new_tags}, indent=2))
     return 0
 
@@ -644,7 +670,7 @@ def cmd_tag_remove(args: argparse.Namespace) -> int:
                           "unchanged": True}, indent=2))
         return 0
     client.update_task(args.task_id, project_id=project_id, tags=new_tags)
-    _resync_mirror(store, settings, client)
+    _resync_mirror_safe(store, settings, client)
     print(json.dumps({"id": args.task_id, "tags": new_tags}, indent=2))
     return 0
 
@@ -718,7 +744,7 @@ def cmd_tag_rename(args: argparse.Namespace) -> int:
             client.update_task(t["id"], project_id=t["project_id"], tags=new_tags)
             updated_ids.append(t["id"])
     finally:
-        _resync_mirror(store, settings, client)
+        _resync_mirror_safe(store, settings, client)
     print(json.dumps({"renamed_from": args.old, "renamed_to": args.new,
                       "updated_tasks": updated_ids}, indent=2))
     return 0
@@ -762,7 +788,7 @@ def cmd_tag_delete(args: argparse.Namespace) -> int:
             client.update_task(t["id"], project_id=t["project_id"], tags=new_tags)
             updated_ids.append(t["id"])
     finally:
-        _resync_mirror(store, settings, client)
+        _resync_mirror_safe(store, settings, client)
     print(json.dumps({"deleted_tag": args.tag,
                       "updated_tasks": updated_ids}, indent=2))
     return 0
@@ -775,7 +801,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
     project_id = _lookup_project_id(store, args.task_id)
     client = _build_client()
     client.complete_task(project_id, args.task_id)
-    _resync_mirror(store, settings, client)
+    _resync_mirror_safe(store, settings, client)
     print(f"Completed {args.task_id}")
     return 0
 
@@ -807,7 +833,7 @@ def cmd_delete(args: argparse.Namespace) -> int:
         return 0
     client = _build_client()
     client.delete_task(project_id, args.task_id)
-    _resync_mirror(store, settings, client)
+    _resync_mirror_safe(store, settings, client)
     print(json.dumps({"deleted": args.task_id, "title": title,
                       "project_id": project_id}, indent=2))
     return 0
