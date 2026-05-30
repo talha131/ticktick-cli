@@ -876,6 +876,214 @@ def test_tag_delete_apply_strips_tag(store, no_sync, httpx_mock) -> None:
     assert body["tags"] == ["keep"]
 
 
+# ---- Post-write mirror sync resilience --------------------------------------
+#
+# When the cloud accepts the write but the follow-up Syncer.run() raises
+# (network blip, transient 5xx, lock contention), the handler must NOT
+# turn that into a non-zero exit — the user's data is already on TickTick
+# and the local mirror is at most one `sync` away from catching up. The
+# contract: print one line to stderr, exit 0. These tests pin that
+# contract for every write-then-sync handler.
+
+
+def _raise_on_call(n: int, exc: Exception):
+    """Build a Syncer.run replacement that raises on the Nth call only.
+
+    Tag commands sync twice (pre-write for staleness protection, post-
+    write to capture our own mutation), so we need to fail the second
+    call without breaking the first. Non-tag commands sync once; n=1."""
+    calls = {"n": 0}
+
+    def _runner(self):
+        calls["n"] += 1
+        if calls["n"] == n:
+            raise exc
+    return _runner
+
+
+def test_edit_post_write_sync_failure_warns_but_exits_zero(
+    store, monkeypatch, httpx_mock, capsys
+) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1", "title": "Renamed"},
+    )
+    monkeypatch.setattr(
+        Syncer, "run",
+        _raise_on_call(1, RuntimeError("network down")),
+    )
+
+    assert _run(["edit", "t1", "--title", "Renamed"]) == 0
+    err = capsys.readouterr().err
+    assert "post-write mirror sync failed" in err
+    assert "ticktick-cli sync" in err
+
+
+def test_punt_post_write_sync_failure_warns_but_exits_zero(
+    store, monkeypatch, httpx_mock, capsys
+) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    monkeypatch.setattr(
+        Syncer, "run",
+        _raise_on_call(1, RuntimeError("503 from upstream")),
+    )
+
+    assert _run(["punt", "t1", "7d"]) == 0
+    err = capsys.readouterr().err
+    assert "post-write mirror sync failed" in err
+
+
+def test_bump_post_write_sync_failure_warns_but_exits_zero(
+    store, monkeypatch, httpx_mock, capsys
+) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    monkeypatch.setattr(
+        Syncer, "run",
+        _raise_on_call(1, RuntimeError("lock contention")),
+    )
+
+    assert _run(["bump", "t1", "high"]) == 0
+    err = capsys.readouterr().err
+    assert "post-write mirror sync failed" in err
+
+
+def test_tag_add_post_write_sync_failure_warns_but_exits_zero(
+    store, monkeypatch, httpx_mock, capsys
+) -> None:
+    """Tag commands sync twice — pre-write must succeed (it's load-bearing
+    for stale-overwrite protection), only post-write fails. Asserting
+    exit 0 here pins that the post-write path is the non-fatal one."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1", tags=["urgent"])
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    monkeypatch.setattr(
+        Syncer, "run",
+        _raise_on_call(2, RuntimeError("network down")),
+    )
+
+    assert _run(["tag", "add", "t1", "waiting"]) == 0
+    err = capsys.readouterr().err
+    assert "post-write mirror sync failed" in err
+
+
+def test_tag_remove_post_write_sync_failure_warns_but_exits_zero(
+    store, monkeypatch, httpx_mock, capsys
+) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1", tags=["urgent", "blocked"])
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    monkeypatch.setattr(
+        Syncer, "run",
+        _raise_on_call(2, RuntimeError("network down")),
+    )
+
+    assert _run(["tag", "remove", "t1", "blocked"]) == 0
+    err = capsys.readouterr().err
+    assert "post-write mirror sync failed" in err
+
+
+def test_tag_add_pre_write_sync_failure_still_fatal(
+    store, monkeypatch, httpx_mock, capsys
+) -> None:
+    """Regression guard: the pre-write sync is load-bearing for staleness
+    protection (a stale local read would overwrite tags added on another
+    device). If it fails, we MUST NOT proceed to the API write — the
+    update_task call would silently drop those tags. Pre-write failures
+    therefore remain fatal even after the post-write softening."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1", tags=["urgent"])
+    # First (pre-write) sync raises.
+    monkeypatch.setattr(
+        Syncer, "run",
+        _raise_on_call(1, RuntimeError("pre-write sync failure")),
+    )
+
+    with pytest.raises(RuntimeError, match="pre-write sync failure"):
+        _run(["tag", "add", "t1", "waiting"])
+    # No HTTP call: we should have bailed before reaching update_task.
+    assert httpx_mock.get_requests() == []
+
+
+def test_tag_rename_finally_sync_failure_after_success_warns_only(
+    store, monkeypatch, httpx_mock, capsys
+) -> None:
+    """When the sweep completes cleanly, the finally-block sync still
+    runs. If that finally-sync fails, we warn but exit 0 — the sweep's
+    writes are already on the server."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1", tags=["old"])
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    # Pre-sync (1) succeeds; finally-sync (2) raises.
+    monkeypatch.setattr(
+        Syncer, "run",
+        _raise_on_call(2, RuntimeError("network down")),
+    )
+
+    assert _run(["tag", "rename", "old", "new", "--apply"]) == 0
+    err = capsys.readouterr().err
+    assert "post-write mirror sync failed" in err
+
+
+def test_tag_rename_mid_loop_failure_preserves_original_exception(
+    store, monkeypatch, httpx_mock, capsys
+) -> None:
+    """When update_task raises mid-sweep AND the finally-block sync also
+    fails, the original update_task exception must still propagate — the
+    finally sync's failure is downgraded to a warning, so it can't mask
+    the load-bearing API error the caller needs to see."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1", tags=["old"])
+    _seed_task(store, "t2", "p1", tags=["old"])
+    # First update_task succeeds, second 500s.
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t2",
+        status_code=500,
+    )
+    # Pre-sync (1) succeeds; finally-sync (2) raises a *different* error.
+    monkeypatch.setattr(
+        Syncer, "run",
+        _raise_on_call(2, RuntimeError("finally sync also broken")),
+    )
+
+    # The HTTPStatusError from update_task must surface, not the sync error.
+    with pytest.raises(Exception) as exc_info:
+        _run(["tag", "rename", "old", "new", "--apply"])
+    assert "finally sync also broken" not in str(exc_info.value)
+
+
 # ---- Emoji tags across CLI handlers -----------------------------------------
 #
 # Tags with emojis are real TickTick data — the UI lets you create them and
