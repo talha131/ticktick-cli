@@ -161,7 +161,7 @@ Run `ticktick-cli <subcommand> --help` for full options.
 | Subcommand | Purpose |
 |---|---|
 | `candidates [--limit N]` | JSON of active tasks: `status=0`, project not archived, project not in `excluded_projects_by_name`, `start_date` ≤ now. Ordered by priority DESC, due-date ASC with NULLs last. Default limit 60. |
-| `recent [--limit N]` | JSON of last N completed tasks, populated by `sync` via `POST /open/v1/task/completed`. The window is bounded by `sync.completions_lookback_days` (30 days by default); completions older than the lookback don't enter the mirror. Default limit 10. |
+| `recent [--limit N] [--days D] [--project P] [--full]` | JSON of recently-completed tasks, fetched live via `POST /open/v1/task/completed` and cached per (project, UTC day) in `completed_cache`. Historical days are cached indefinitely; today is always re-fetched so swipe-completions from the mobile app are visible without a separate `sync`. Default `--days 7`, `--limit 20`. `--project` accepts a name (case-insensitive) or id. Output is the abridged shape `{id, title, project, priority, tags, completed_at, due_date, start_date}`; pass `--full` to print the raw TickTick task bodies. |
 
 ### Write — per-task, fires immediately
 
@@ -298,11 +298,12 @@ sync:
   # read triggers an inline re-sync.
   ttl_minutes: 5
 
-  # Lookback window for the completed-tasks fetch during sync. Every
-  # `sync` pulls completions in [now - N days, now] via
-  # POST /open/v1/task/completed, which is what populates `recent`.
-  # Widen this if you want deeper history in `recent`; set to 0 to
-  # skip the call entirely.
+  # Lookback window for the completed-tasks fetch during `sync`.
+  # `sync` pulls completions in [now - N days, now] into the main
+  # tasks mirror via POST /open/v1/task/completed. Note: `recent`
+  # has its own cache and fetches independently — this setting
+  # only affects what `sync` puts into the tasks table. Set to 0
+  # to skip the call entirely.
   completions_lookback_days: 30
 
 filters:

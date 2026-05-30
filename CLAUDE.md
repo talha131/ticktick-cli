@@ -50,7 +50,7 @@ Current entries:
 | `setup` | One-time OAuth via browser callback | `POST /oauth/token` |
 | `sync` | Pull TickTick projects + tasks (active + recent completions) into local SQLite | `GET /open/v1/project`, `GET /open/v1/project/{id}/data`, `POST /open/v1/task/completed` |
 | `candidates [--limit N]` | JSON of active tasks from local mirror | local SQLite query |
-| `recent [--limit N]` | JSON of recently completed tasks, bounded by `sync.completions_lookback_days` (default 30) | local SQLite query |
+| `recent [--limit N] [--days D] [--project P] [--full]` | JSON of recently-completed tasks, fetched live via TickTick and cached per (project, UTC day) | `POST /open/v1/task/completed` |
 | `add <title> --project P [--due ...] [--remind ...] [--repeat RRULE] [--tag ...]` | Create a task | `POST /open/v1/task` |
 | `complete <task_id>` | Mark task complete | `POST /open/v1/project/{p}/task/{t}/complete` |
 | `delete <task_id> [--apply]` | Delete task (dry-run unless --apply) | `DELETE /open/v1/project/{p}/task/{t}` |
@@ -122,6 +122,7 @@ ticktick-cli/
 │   ├── ticktick.py            ← REST client + iCal TRIGGER helpers
 │   ├── sync.py                ← transactional cloud → mirror sync
 │   ├── candidates.py          ← parameterized active-task query
+│   ├── recent.py              ← completed-task fetch + (project, day) cache
 │   └── config.py              ← settings.yml pydantic models
 ├── tests/
 │   ├── test_*.py              ← per-module unit tests
@@ -217,7 +218,19 @@ N is `sync.completions_lookback_days` (default 30). Completions whose
 project is no longer in `list_projects()` are skipped to avoid FK
 violations on the upsert. The window is configurable but not
 unbounded — completions older than the lookback never enter the
-mirror, and `recent` is bounded by the same window.
+`tasks` mirror via sync.
+
+**`recent` fetches completions independently — don't consolidate it
+with sync.** The `recent` subcommand calls `POST /open/v1/task/completed`
+directly via `recent.list_recent()` and caches per `(project_id, UTC day)`
+in the `completed_cache` table. This is deliberate: the loop-closing
+use case (e.g. "what did Talha just swipe-complete on mobile?") needs
+fresh today-data on every invocation, which sync's cached-mirror read
+can't provide. Historical days in `completed_cache` are immutable
+(written once, never refreshed); today is never cached. The main
+`tasks` table is still populated by sync for code that wants
+completion history alongside actives, but `recent` ignores it.
+Keep these paths separate.
 
 **Reminders are iCal TRIGGER strings, relative to the task's due
 time.** Negative duration = before, zero = at, positive = after. Tasks
