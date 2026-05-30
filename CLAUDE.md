@@ -59,6 +59,7 @@ Current entries:
 | `remind <task_id> [durations...] [--clear]` | Set reminders | `POST /open/v1/task/{taskId}` |
 | `edit <task_id> [--title ...] [--due ... \| --clear-due] [--start ... \| --clear-start] [--priority ...]` | Edit mutable task fields (title, content, due/start dates, priority) | `POST /open/v1/task/{taskId}` |
 | `punt <task_id> <when>` | Sugar over `edit --start` — push start date forward | `POST /open/v1/task/{taskId}` |
+| `bump <task_id> {none,low,medium,high}` | Sugar over `edit --priority` — set priority by name | `POST /open/v1/task/{taskId}` |
 | `move <task_id> --to <project>` | Move task to another project | `POST /open/v1/task/move` |
 | `repeat <task_id> [RRULE] [--clear]` | Set/clear task recurrence | `POST /open/v1/task/{taskId}` |
 | `tag add <task_id> <tag>...` | Add tags to a task (merges with existing) | `POST /open/v1/task/{taskId}` |

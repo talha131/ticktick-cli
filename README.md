@@ -11,7 +11,7 @@ SQLite mirror of your projects and tasks for fast, scriptable access.
                         ~/.config/ticktick-cli/cache/tasks.db
 
        Read     candidates  recent
-       Write    add  complete  delete  edit  punt  remind  move  repeat  tag
+       Write    add  complete  delete  edit  punt  bump  remind  move  repeat  tag
                        (reads + mutates the API and mirror)
 ```
 
@@ -172,6 +172,7 @@ Run `ticktick-cli <subcommand> --help` for full options.
 | `remind <task_id> [durations...] [--clear]` | Set reminders on an existing task. Replaces any existing reminders. |
 | `edit <task_id> [--title T] [--content C] [--due W \| --clear-due] [--start W \| --clear-start] [--priority {none,low,medium,high}]` | Edit fields on an existing task. At least one flag required. Date inputs accept ISO 8601, relative (`+7d`, `3h`), weekday names (`monday`), or `today`/`tomorrow` — see [`dates.py`](src/ticktick_cli/dates.py) for the full grammar. Priority accepts names or numeric (0/1/3/5). Re-syncs after the write. |
 | `punt <task_id> <when>` | Sugar over `edit --start <when>`. Sets the start date so the task disappears from default views until then. Doesn't touch the due date. |
+| `bump <task_id> {none,low,medium,high}` | Sugar over `edit --priority`. Sets task priority by name (no numeric form — name only for triage clarity). |
 | `move <task_id> --to <project>` | Move a task to a different project. `--to` accepts a name (case-insensitive) or project id. Errors if the task is already in that project. Re-syncs. |
 | `repeat <task_id> [RRULE] [--clear]` | Set or clear an iCal RRULE recurrence on a task. Pass through verbatim — see RFC 5545 for syntax. |
 | `tag add <task_id> <tag>...` | Add one or more tags to a task. Merges with existing tags (auto-pre-syncs to avoid losing tags added on another device); duplicates are skipped. |
@@ -252,6 +253,12 @@ ticktick-cli punt 6549abcdef0123456789 7d
 
 # Punt until next Monday:
 ticktick-cli punt 6549abcdef0123456789 monday
+
+# Bump priority to high:
+ticktick-cli bump 6549abcdef0123456789 high
+
+# Drop priority back to none:
+ticktick-cli bump 6549abcdef0123456789 none
 
 # Create a tagged task:
 ticktick-cli add "Buy milk" --project Personal --tag errand --tag shopping

@@ -401,6 +401,45 @@ def test_punt_resyncs_after_write(store, monkeypatch, httpx_mock) -> None:
     assert len(sync_calls) == 1
 
 
+# ---- cmd_bump ---------------------------------------------------------------
+
+
+def test_bump_high_sends_priority_5(store, no_sync, httpx_mock) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    assert _run(["bump", "t1", "high"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["priority"] == 5
+
+
+def test_bump_none_sends_priority_0(store, no_sync, httpx_mock) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    assert _run(["bump", "t1", "none"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["priority"] == 0
+
+
+def test_bump_rejects_invalid_level(store, no_sync) -> None:
+    """argparse's `choices=` rejects anything outside the allowed set
+    with SystemExit(2)."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    with pytest.raises(SystemExit) as exc_info:
+        _run(["bump", "t1", "ultra"])
+    assert exc_info.value.code == 2
+
+
 # ---- cmd_delete -------------------------------------------------------------
 
 

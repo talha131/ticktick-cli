@@ -2,8 +2,8 @@
 
 A thin wrapper around TickTick's Open API plus a local SQLite mirror.
 
-Subcommands: setup, sync, candidates, recent, add, complete, delete, remind,
-move, repeat, tag.
+Subcommands: setup, sync, candidates, recent, add, complete, delete, edit,
+punt, bump, remind, move, repeat, tag.
 """
 
 from __future__ import annotations
@@ -434,6 +434,25 @@ def cmd_punt(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bump(args: argparse.Namespace) -> int:
+    """Sugar over `edit --priority`. Takes a name, never a number —
+    the verb is for quick conversational triage ("bump X to high")."""
+    priority = _PRIORITY_NAMES[args.level]
+    settings = _load_settings_from_home()
+    store = _open_store(settings)
+    project_id = _lookup_project_id(store, args.task_id)
+    client = _build_client()
+    client.update_task(
+        args.task_id, project_id=project_id, priority=priority,
+    )
+    Syncer(store=store, client=client,
+           excluded_names=settings.filters.excluded_projects_by_name,
+           completions_lookback_days=settings.sync.completions_lookback_days).run()
+    print(json.dumps({"id": args.task_id,
+                      "priority": priority, "level": args.level}, indent=2))
+    return 0
+
+
 def cmd_move(args: argparse.Namespace) -> int:
     """Move a task to a different project via TickTick API and re-sync."""
     settings = _load_settings_from_home()
@@ -841,6 +860,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_punt.add_argument("when",
         help="ISO 8601, '+7d', 'monday', etc. — same grammar as `edit --start`.")
     p_punt.set_defaults(func=cmd_punt)
+
+    p_bump = sub.add_parser("bump",
+        help="Set task priority by name (sugar over `edit --priority`).")
+    p_bump.add_argument("task_id")
+    p_bump.add_argument("level", choices=list(_PRIORITY_NAMES),
+        help="Priority level: none, low, medium, or high.")
+    p_bump.set_defaults(func=cmd_bump)
 
     p_remind = sub.add_parser("remind",
         help="Set reminders on an existing task (replaces existing reminders).")
