@@ -328,9 +328,7 @@ def cmd_add(args: argparse.Namespace) -> int:
         tags=args.tag if args.tag else None,
     )
     # Refresh mirror so the new task is visible to `candidates` immediately.
-    Syncer(store=store, client=client,
-           excluded_names=settings.filters.excluded_projects_by_name,
-           completions_lookback_days=settings.sync.completions_lookback_days).run()
+    _resync_mirror(store, settings, client)
     print(json.dumps({"id": created.get("id"), "title": created.get("title"),
                       "project_id": project_id,
                       "reminders": created.get("reminders", []),
@@ -366,9 +364,7 @@ def cmd_remind(args: argparse.Namespace) -> int:
         args.task_id, project_id=project_id, reminders=triggers
     )
     # Re-sync so the mirror reflects the new reminder array.
-    Syncer(store=store, client=client,
-           excluded_names=settings.filters.excluded_projects_by_name,
-           completions_lookback_days=settings.sync.completions_lookback_days).run()
+    _resync_mirror(store, settings, client)
     print(json.dumps({"id": args.task_id,
                       "reminders": updated.get("reminders", triggers)},
                      indent=2))
@@ -438,9 +434,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
         start_date=start_date,
         priority=priority,
     )
-    Syncer(store=store, client=client,
-           excluded_names=settings.filters.excluded_projects_by_name,
-           completions_lookback_days=settings.sync.completions_lookback_days).run()
+    _resync_mirror(store, settings, client)
     if args.full:
         print(json.dumps(updated, indent=2))
     else:
@@ -482,9 +476,7 @@ def cmd_punt(args: argparse.Namespace) -> int:
     updated = client.update_task(
         args.task_id, project_id=project_id, start_date=start_iso,
     )
-    Syncer(store=store, client=client,
-           excluded_names=settings.filters.excluded_projects_by_name,
-           completions_lookback_days=settings.sync.completions_lookback_days).run()
+    _resync_mirror(store, settings, client)
     if args.full:
         print(json.dumps(updated, indent=2))
     else:
@@ -512,9 +504,7 @@ def cmd_bump(args: argparse.Namespace) -> int:
     updated = client.update_task(
         args.task_id, project_id=project_id, priority=priority,
     )
-    Syncer(store=store, client=client,
-           excluded_names=settings.filters.excluded_projects_by_name,
-           completions_lookback_days=settings.sync.completions_lookback_days).run()
+    _resync_mirror(store, settings, client)
     if args.full:
         print(json.dumps(updated, indent=2))
     else:
@@ -541,9 +531,7 @@ def cmd_move(args: argparse.Namespace) -> int:
         from_project_id=from_project_id,
         to_project_id=to_project_id,
     )
-    Syncer(store=store, client=client,
-           excluded_names=settings.filters.excluded_projects_by_name,
-           completions_lookback_days=settings.sync.completions_lookback_days).run()
+    _resync_mirror(store, settings, client)
     print(json.dumps({"id": args.task_id,
                       "from_project_id": from_project_id,
                       "to_project_id": to_project_id}, indent=2))
@@ -578,9 +566,7 @@ def cmd_repeat(args: argparse.Namespace) -> int:
     updated = client.update_task(
         args.task_id, project_id=project_id, repeat_flag=repeat_flag
     )
-    Syncer(store=store, client=client,
-           excluded_names=settings.filters.excluded_projects_by_name,
-           completions_lookback_days=settings.sync.completions_lookback_days).run()
+    _resync_mirror(store, settings, client)
     print(json.dumps({"id": args.task_id,
                       "repeat": updated.get("repeatFlag", repeat_flag)},
                      indent=2))
@@ -789,9 +775,7 @@ def cmd_complete(args: argparse.Namespace) -> int:
     project_id = _lookup_project_id(store, args.task_id)
     client = _build_client()
     client.complete_task(project_id, args.task_id)
-    Syncer(store=store, client=client,
-           excluded_names=settings.filters.excluded_projects_by_name,
-           completions_lookback_days=settings.sync.completions_lookback_days).run()
+    _resync_mirror(store, settings, client)
     print(f"Completed {args.task_id}")
     return 0
 
@@ -823,9 +807,7 @@ def cmd_delete(args: argparse.Namespace) -> int:
         return 0
     client = _build_client()
     client.delete_task(project_id, args.task_id)
-    Syncer(store=store, client=client,
-           excluded_names=settings.filters.excluded_projects_by_name,
-           completions_lookback_days=settings.sync.completions_lookback_days).run()
+    _resync_mirror(store, settings, client)
     print(json.dumps({"deleted": args.task_id, "title": title,
                       "project_id": project_id}, indent=2))
     return 0
