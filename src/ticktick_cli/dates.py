@@ -15,6 +15,7 @@ and we default to `datetime.now(timezone.utc).astimezone()` (local tz)."""
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 
 _WEEKDAYS = {
@@ -30,9 +31,17 @@ def _format(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S%z")
 
 
+_ISO_8601_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}([+-]\d{4}|Z)$"
+)
+
+
 def _is_iso_8601(s: str) -> bool:
-    """Heuristic: contains `T` between a date and a time."""
-    return "T" in s and len(s) >= 16 and s[4] == "-" and s[7] == "-"
+    """Match TickTick's expected shape: `YYYY-MM-DDTHH:MM:SS±HHMM` or
+    `...Z`. Stricter than full ISO 8601 (e.g. `+HH:MM` offset rejected)
+    on purpose — pass-through means we never re-normalize, so the form
+    we accept here is the form we'll forward to TickTick verbatim."""
+    return bool(_ISO_8601_RE.match(s))
 
 
 def parse_when(spec: str, *, now: datetime | None = None) -> str:

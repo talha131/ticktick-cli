@@ -10,7 +10,7 @@ behavior."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 import pytest
 
@@ -38,6 +38,21 @@ def test_parse_when_iso_8601_passes_through():
 
 def test_parse_when_iso_8601_with_nonzero_offset_preserved():
     iso = "2026-06-15T15:00:00+0500"
+    assert parse_when(iso, now=_now()) == iso
+
+
+def test_parse_when_rejects_partial_iso_8601():
+    """`2026-06-15T09:00` (no seconds, no offset) used to pass through
+    silently and 400 at TickTick. Now the parser refuses it before the
+    HTTP layer ever sees it. Users wanting precision should pass the
+    full `YYYY-MM-DDTHH:MM:SS±HHMM` form."""
+    with pytest.raises(ValueError, match="Cannot parse"):
+        parse_when("2026-06-15T09:00", now=_now())
+
+
+def test_parse_when_accepts_iso_8601_with_z_suffix():
+    """`Z` is the ISO 8601 alias for `+0000`; pass through verbatim."""
+    iso = "2026-06-15T09:00:00Z"
     assert parse_when(iso, now=_now()) == iso
 
 
@@ -111,6 +126,15 @@ def test_parse_when_tomorrow_resolves_to_midnight_local_tomorrow():
 def test_parse_when_rejects_garbage():
     with pytest.raises(ValueError, match="Cannot parse"):
         parse_when("flarble", now=_now())
+
+
+def test_parse_when_rejects_next_with_unknown_day():
+    """`next-<word>` strips the prefix and falls through; if the
+    remainder isn't a weekday, the standard 'Cannot parse' error
+    fires. Pinned so a future 'treat next- as a generic prefix' change
+    doesn't silently swallow garbage."""
+    with pytest.raises(ValueError, match="Cannot parse"):
+        parse_when("next-flarble", now=_now())
 
 
 def test_parse_when_rejects_empty_string():
