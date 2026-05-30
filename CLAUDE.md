@@ -57,6 +57,7 @@ Current entries:
 | `complete <task_id>` | Mark task complete | `POST /open/v1/project/{p}/task/{t}/complete` |
 | `delete <task_id> [--apply]` | Delete task (dry-run unless --apply) | `DELETE /open/v1/project/{p}/task/{t}` |
 | `remind <task_id> [durations...] [--clear]` | Set reminders | `POST /open/v1/task/{taskId}` |
+| `edit <task_id> [--title ...] [--due ... \| --clear-due] [--start ... \| --clear-start] [--priority ...]` | Edit mutable task fields (title, content, due/start dates, priority) | `POST /open/v1/task/{taskId}` |
 | `move <task_id> --to <project>` | Move task to another project | `POST /open/v1/task/move` |
 | `repeat <task_id> [RRULE] [--clear]` | Set/clear task recurrence | `POST /open/v1/task/{taskId}` |
 | `tag add <task_id> <tag>...` | Add tags to a task (merges with existing) | `POST /open/v1/task/{taskId}` |
@@ -257,12 +258,9 @@ Currently wrapped:
 
 Documented but not yet wrapped:
 
-- **`POST /open/v1/task/{taskId}` — extending `update_task` to accept
-  `startDate`, `dueDate`, `priority`, `title`, `content`.** Currently
-  only `reminders` flows through. **This is the highest-priority gap**
-  — the workspace agent's triage verbs ("punt X for 5d", "bump X to
-  high") are blocked on it. Full spec at
-  [`memory/feature_request_triage_edit_subcommand.md`](memory/feature_request_triage_edit_subcommand.md).
+- (None currently — the `update_task` extension shipped on 2026-05-30
+  unblocking `edit`/`punt`/`bump`. See `memory/feature_request_triage_edit_subcommand.md`
+  for the historical request.)
 - `GET /open/v1/project/{projectId}/task/{taskId}` — fetch a single
   task. Low priority; the mirror has most of what we'd need.
 - `POST /open/v1/task/filter` — advanced filtering server-side.

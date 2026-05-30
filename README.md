@@ -11,7 +11,7 @@ SQLite mirror of your projects and tasks for fast, scriptable access.
                         ~/.config/ticktick-cli/cache/tasks.db
 
        Read     candidates  recent
-       Write    add  complete  delete  remind  move  repeat  tag
+       Write    add  complete  delete  edit  remind  move  repeat  tag
                        (reads + mutates the API and mirror)
 ```
 
@@ -170,6 +170,7 @@ Run `ticktick-cli <subcommand> --help` for full options.
 | `add <title> --project <name>` | Create a task. `--project` accepts a name (case-insensitive) or a TickTick project id. Optional: `--content`, `--priority {0,1,3,5}`, `--due <ISO>`, `--remind <duration>` (repeatable), `--repeat <RRULE>`, `--tag <name>` (repeatable). Re-syncs after. |
 | `complete <task_id>` | Mark complete via TickTick's API. Re-syncs. |
 | `remind <task_id> [durations...] [--clear]` | Set reminders on an existing task. Replaces any existing reminders. |
+| `edit <task_id> [--title T] [--content C] [--due W \| --clear-due] [--start W \| --clear-start] [--priority {none,low,medium,high}]` | Edit fields on an existing task. At least one flag required. Date inputs accept ISO 8601, relative (`+7d`, `3h`), weekday names (`monday`), or `today`/`tomorrow` — see [`dates.py`](src/ticktick_cli/dates.py) for the full grammar. Priority accepts names or numeric (0/1/3/5). Re-syncs after the write. |
 | `move <task_id> --to <project>` | Move a task to a different project. `--to` accepts a name (case-insensitive) or project id. Errors if the task is already in that project. Re-syncs. |
 | `repeat <task_id> [RRULE] [--clear]` | Set or clear an iCal RRULE recurrence on a task. Pass through verbatim — see RFC 5545 for syntax. |
 | `tag add <task_id> <tag>...` | Add one or more tags to a task. Merges with existing tags (auto-pre-syncs to avoid losing tags added on another device); duplicates are skipped. |
@@ -232,6 +233,18 @@ ticktick-cli repeat 6549abcdef0123456789 "RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR"
 
 # Remove recurrence (make it a one-shot task):
 ticktick-cli repeat 6549abcdef0123456789 --clear
+
+# Push a task's due date out 7 days from now:
+ticktick-cli edit 6549abcdef0123456789 --due +7d
+
+# Bump priority to High:
+ticktick-cli edit 6549abcdef0123456789 --priority high
+
+# Rename and clear the due date:
+ticktick-cli edit 6549abcdef0123456789 --title "New title" --clear-due
+
+# Set the start date to next Monday (00:00 local):
+ticktick-cli edit 6549abcdef0123456789 --start monday
 
 # Create a tagged task:
 ticktick-cli add "Buy milk" --project Personal --tag errand --tag shopping

@@ -210,6 +210,28 @@ def cmd_recent(args: argparse.Namespace) -> int:
     return 0
 
 
+_PRIORITY_NAMES = {"none": 0, "low": 1, "medium": 3, "high": 5}
+
+
+def _parse_priority(s: str) -> int:
+    """Accept either a name (`high`/`medium`/`low`/`none`) or a numeric
+    TickTick priority (`0`/`1`/`3`/`5`). Used as argparse `type=`."""
+    s = s.strip().lower()
+    if s in _PRIORITY_NAMES:
+        return _PRIORITY_NAMES[s]
+    try:
+        n = int(s)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"priority must be one of {sorted(_PRIORITY_NAMES)} or 0/1/3/5"
+        )
+    if n not in (0, 1, 3, 5):
+        raise argparse.ArgumentTypeError(
+            f"numeric priority must be 0/1/3/5 (got {n})"
+        )
+    return n
+
+
 def _resolve_project_id(store: Store, name_or_id: str) -> str:
     """Accept either a project id (returned verbatim if present in DB) or a
     case-insensitive project name match. Errors out if neither matches."""
@@ -315,6 +337,68 @@ def cmd_remind(args: argparse.Namespace) -> int:
     print(json.dumps({"id": args.task_id,
                       "reminders": updated.get("reminders", triggers)},
                      indent=2))
+    return 0
+
+
+def cmd_edit(args: argparse.Namespace) -> int:
+    """Edit one or more mutable fields on an existing task.
+
+    Flags are mutually optional but at least one must be present.
+    `--clear-due` / `--clear-start` send empty-string to TickTick;
+    they cannot combine with `--due` / `--start` respectively.
+
+    Date inputs are parsed by `dates.parse_when` which accepts ISO
+    8601 verbatim, relative durations (`+7d`, `3h`), weekday names,
+    and `today`/`tomorrow`. See dates.py for the full grammar."""
+    from .dates import parse_when
+
+    if args.due and args.clear_due:
+        sys.stderr.write("Pass either --due or --clear-due, not both.\n")
+        return 2
+    if args.start and args.clear_start:
+        sys.stderr.write("Pass either --start or --clear-start, not both.\n")
+        return 2
+
+    title = args.title
+    content = args.content
+    due_date = "" if args.clear_due else (
+        parse_when(args.due) if args.due else None
+    )
+    start_date = "" if args.clear_start else (
+        parse_when(args.start) if args.start else None
+    )
+    priority = args.priority
+
+    if all(v is None for v in (title, content, due_date, start_date, priority)):
+        sys.stderr.write(
+            "Pass at least one of --title, --content, --due, --clear-due, "
+            "--start, --clear-start, --priority.\n"
+        )
+        return 2
+
+    settings = _load_settings_from_home()
+    store = _open_store(settings)
+    project_id = _lookup_project_id(store, args.task_id)
+    client = _build_client()
+    updated = client.update_task(
+        args.task_id,
+        project_id=project_id,
+        title=title,
+        content=content,
+        due_date=due_date,
+        start_date=start_date,
+        priority=priority,
+    )
+    Syncer(store=store, client=client,
+           excluded_names=settings.filters.excluded_projects_by_name,
+           completions_lookback_days=settings.sync.completions_lookback_days).run()
+    print(json.dumps({
+        "id": args.task_id,
+        "title": updated.get("title"),
+        "due_date": updated.get("dueDate"),
+        "start_date": updated.get("startDate"),
+        "priority": updated.get("priority"),
+    }, indent=2))
     return 0
 
 
@@ -699,6 +783,25 @@ def _build_parser() -> argparse.ArgumentParser:
     p_repeat.add_argument("--clear", action="store_true",
         help="Remove the existing recurrence rule. Cannot combine with an RRULE.")
     p_repeat.set_defaults(func=cmd_repeat)
+
+    p_edit = sub.add_parser("edit",
+        help="Edit fields on an existing task (title, content, dates, priority).")
+    p_edit.add_argument("task_id")
+    p_edit.add_argument("--title", default=None, help="Replace the task's title.")
+    p_edit.add_argument("--content", default=None,
+        help="Replace the task's notes/content.")
+    p_edit.add_argument("--due", default=None, metavar="WHEN",
+        help="Set due date. ISO 8601, '+7d', 'monday', 'today', etc. — see dates.py.")
+    p_edit.add_argument("--clear-due", dest="clear_due", action="store_true",
+        help="Clear the due date. Cannot combine with --due.")
+    p_edit.add_argument("--start", default=None, metavar="WHEN",
+        help="Set start date. Same grammar as --due.")
+    p_edit.add_argument("--clear-start", dest="clear_start", action="store_true",
+        help="Clear the start date. Cannot combine with --start.")
+    p_edit.add_argument("--priority", default=None, type=_parse_priority,
+        metavar="P",
+        help="One of: none, low, medium, high — or numeric 0/1/3/5.")
+    p_edit.set_defaults(func=cmd_edit)
 
     p_remind = sub.add_parser("remind",
         help="Set reminders on an existing task (replaces existing reminders).")

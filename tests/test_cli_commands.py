@@ -171,6 +171,160 @@ def test_repeat_no_rrule_no_clear_exits_2(
     assert httpx_mock.get_requests() == []
 
 
+# ---- cmd_edit ---------------------------------------------------------------
+
+
+def test_edit_title_sends_title_in_payload(store, no_sync, httpx_mock) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1", "title": "Renamed"},
+    )
+
+    assert _run(["edit", "t1", "--title", "Renamed"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["title"] == "Renamed"
+    assert body["id"] == "t1"
+    assert body["projectId"] == "p1"
+
+
+def test_edit_priority_accepts_name(store, no_sync, httpx_mock) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    assert _run(["edit", "t1", "--priority", "high"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["priority"] == 5
+
+
+def test_edit_priority_accepts_numeric(store, no_sync, httpx_mock) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    assert _run(["edit", "t1", "--priority", "5"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["priority"] == 5
+
+
+def test_edit_priority_rejects_invalid(store, no_sync, capsys) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    # argparse's `type=` callable raises → SystemExit(2)
+    with pytest.raises(SystemExit) as exc_info:
+        _run(["edit", "t1", "--priority", "ultra"])
+    assert exc_info.value.code == 2
+
+
+def test_edit_due_accepts_iso(store, no_sync, httpx_mock) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    assert _run(["edit", "t1", "--due", "2026-06-15T15:00:00+0000"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["dueDate"] == "2026-06-15T15:00:00+0000"
+
+
+def test_edit_due_accepts_relative(store, no_sync, httpx_mock) -> None:
+    """Relative spec goes through dates.parse_when. We assert the
+    request was made with a non-empty dueDate; exact value depends on
+    `now` and isn't worth pinning here (parse_when is tested directly
+    in test_dates.py)."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    assert _run(["edit", "t1", "--due", "+7d"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert "dueDate" in body
+    # Loose shape check: 4-digit year, contains 'T', ends with offset.
+    assert body["dueDate"][:4].isdigit()
+    assert "T" in body["dueDate"]
+
+
+def test_edit_clear_due_sends_empty_string(store, no_sync, httpx_mock) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    assert _run(["edit", "t1", "--clear-due"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["dueDate"] == ""
+
+
+def test_edit_clear_start_sends_empty_string(store, no_sync, httpx_mock) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    assert _run(["edit", "t1", "--clear-start"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["startDate"] == ""
+
+
+def test_edit_due_and_clear_due_conflict(store, no_sync, capsys) -> None:
+    """Can't both set and clear in the same invocation."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    assert _run(["edit", "t1", "--due", "+7d", "--clear-due"]) == 2
+    assert "either --due or --clear-due" in capsys.readouterr().err.lower()
+
+
+def test_edit_no_flags_errors(store, no_sync, capsys) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    assert _run(["edit", "t1"]) == 2
+    assert "at least one" in capsys.readouterr().err.lower()
+
+
+def test_edit_unknown_task_exits_2(store, no_sync, capsys) -> None:
+    """_lookup_project_id exits 2 if the task isn't in the mirror."""
+    _seed_project(store, "p1", "Work")
+    # No task seeded.
+    with pytest.raises(SystemExit) as exc_info:
+        _run(["edit", "missing-id", "--title", "x"])
+    assert exc_info.value.code == 2
+
+
+def test_edit_resyncs_after_write(store, monkeypatch, httpx_mock) -> None:
+    """A successful edit triggers exactly one Syncer.run() afterwards,
+    matching the discipline of cmd_remind / cmd_repeat."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    sync_calls = []
+    monkeypatch.setattr(Syncer, "run",
+                        lambda self: sync_calls.append(1))
+    assert _run(["edit", "t1", "--title", "Renamed"]) == 0
+    assert len(sync_calls) == 1
+
+
 # ---- cmd_delete -------------------------------------------------------------
 
 
