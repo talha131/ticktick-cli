@@ -239,7 +239,7 @@ ticktick-cli repeat 6549abcdef0123456789 --clear
 # Push a task's due date out 7 days from now:
 ticktick-cli edit 6549abcdef0123456789 --due +7d
 
-# Bump priority to High:
+# Raise priority via edit:
 ticktick-cli edit 6549abcdef0123456789 --priority high
 
 # Rename and clear the due date:

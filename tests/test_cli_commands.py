@@ -440,6 +440,33 @@ def test_bump_rejects_invalid_level(store, no_sync) -> None:
     assert exc_info.value.code == 2
 
 
+def test_bump_resyncs_after_write(store, monkeypatch, httpx_mock) -> None:
+    """A successful bump triggers exactly one Syncer.run() afterwards,
+    matching the discipline of cmd_edit / cmd_punt / cmd_remind."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    sync_calls = []
+    monkeypatch.setattr(Syncer, "run",
+                        lambda self: sync_calls.append(1))
+    assert _run(["bump", "t1", "high"]) == 0
+    assert len(sync_calls) == 1
+
+
+def test_bump_unknown_task_exits_2(store, no_sync, capsys) -> None:
+    """_lookup_project_id exits 2 if the task isn't in the mirror —
+    mirrors test_edit_unknown_task_exits_2 / test_punt_unknown_task_exits_2."""
+    _seed_project(store, "p1", "Work")
+    # No task seeded.
+    with pytest.raises(SystemExit) as exc_info:
+        _run(["bump", "missing-id", "high"])
+    assert exc_info.value.code == 2
+
+
 # ---- cmd_delete -------------------------------------------------------------
 
 
