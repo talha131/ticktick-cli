@@ -92,9 +92,12 @@ are independent; there's no server-side transaction. If one fails
 mid-loop, earlier tasks have already been mutated on TickTick. Both
 sweep commands run the mirror re-sync in a `finally` block so the
 local view reflects whatever partial state the server actually holds,
-then re-raise. Callers should treat any non-zero exit from `tag rename
---apply` or `tag delete --apply` as "partial application possible —
-inspect the mirror." Don't remove this `finally`.
+then re-raise the original update_task exception. Callers should
+treat any non-zero exit from `tag rename --apply` or `tag delete
+--apply` as "partial application possible — inspect the mirror." Don't
+remove this `finally`. The finally-block re-sync goes through
+`_resync_mirror_safe` so a sync failure there can't mask the
+underlying update_task error — see the post-write softening note below.
 
 **All tag mutations sync the mirror twice — once before, once after.**
 `update_task` replaces the server's tag list wholesale; if our read-
@@ -104,7 +107,23 @@ since the last sync get silently dropped. So `cmd_tag_add` /
 `_resync_mirror()` *before* reading from the mirror, then again
 *after* the write to capture our own mutation. Two `Syncer.run()`
 calls per tag op is the cost of correctness; don't optimize one away
-without a different correctness story.
+without a different correctness story. The two calls are NOT
+symmetric: pre-write goes through `_resync_mirror` (fatal — staleness
+would corrupt the write); post-write goes through
+`_resync_mirror_safe` (warns, doesn't raise — see below).
+
+**Post-write mirror sync failures are non-fatal.** Every write handler
+(add, edit, punt, bump, remind, repeat, move, complete, delete, tag
+add, tag remove, tag rename, tag delete) calls `_resync_mirror_safe`
+*after* the API write succeeds. If that sync raises (transient 5xx,
+network blip, lock contention), the handler prints one line to stderr
+("warning: post-write mirror sync failed (...) — run `ticktick-cli
+sync` to refresh local state") and exits 0. Rationale: the server
+already has the user's data, the local mirror is at most one manual
+`sync` away from catching up, and scripted callers reading the exit
+code shouldn't conclude the write itself failed. Pre-write
+`_resync_mirror` calls in tag handlers stay fatal — staleness there
+would silently drop tags from another device.
 
 ## File layout
 
@@ -178,8 +197,12 @@ ticktick-cli/
 - Read subcommands print JSON. The caller (a script, another tool, a
   Claude session in some other directory) consumes them.
 - Write subcommands re-run `sync` after the write so subsequent reads
-  see the new state. Tag mutations also re-sync *before* the write to
-  prevent stale-mirror overwrites — see the tag operations note below.
+  see the new state. The post-write sync goes through
+  `_resync_mirror_safe`, which downgrades sync failures to a stderr
+  warning — see the post-write softening note in Known quirks. Tag
+  mutations also re-sync *before* the write to prevent stale-mirror
+  overwrites (this pre-sync stays fatal) — see the tag operations note
+  below.
 - Each subcommand is `cmd_<name>(args)` returning an exit code (0 OK).
 - Add new subcommands: write the function, then add a
   `sub.add_parser(...)` block in `_build_parser()`.
