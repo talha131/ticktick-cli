@@ -9,12 +9,17 @@ Rules:
 from __future__ import annotations
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from .store import Store
 from .ticktick import TickTickClient
 
 log = logging.getLogger(__name__)
+
+# TickTick's date format everywhere in the Open API:
+#   yyyy-MM-dd'T'HH:mm:ssZ  →  e.g. "2026-05-01T00:00:00+0000"
+# strftime("%z") emits "+0000" (no colon), matching the documented form.
+_TICKTICK_DATE_FMT = "%Y-%m-%dT%H:%M:%S%z"
 
 
 def _slugify(name: str) -> str:
@@ -22,10 +27,17 @@ def _slugify(name: str) -> str:
 
 
 class Syncer:
-    def __init__(self, store: Store, client: TickTickClient, excluded_names: list[str]) -> None:
+    def __init__(
+        self,
+        store: Store,
+        client: TickTickClient,
+        excluded_names: list[str],
+        completions_lookback_days: int = 30,
+    ) -> None:
         self.store = store
         self.client = client
         self.excluded_names = excluded_names
+        self.completions_lookback_days = completions_lookback_days
 
     def run(self) -> None:
         cur = self.store.conn.cursor()
@@ -70,6 +82,62 @@ class Syncer:
                             t["id"], t.get("projectId", p["id"]),
                             t["title"], t.get("content"),
                             t.get("status", 0), t.get("priority"),
+                            t.get("dueDate"), t.get("startDate"),
+                            t.get("completedTime"),
+                            json.dumps(t.get("tags", [])),
+                            t.get("repeatFlag"),
+                            t.get("modifiedTime") or datetime.now(timezone.utc).isoformat(),
+                            json.dumps(t),
+                        ),
+                    )
+
+            # Pull recently-completed tasks. /open/v1/project/{id}/data
+            # returns active tasks only; historical completions only
+            # come back from /open/v1/task/completed. Skip the call if
+            # the lookback is disabled (<=0) — the test/quiet mode.
+            if self.completions_lookback_days > 0:
+                end_dt = datetime.now(timezone.utc)
+                start_dt = end_dt - timedelta(days=self.completions_lookback_days)
+                completed = self.client.list_completed_tasks(
+                    start_date=start_dt.strftime(_TICKTICK_DATE_FMT),
+                    end_date=end_dt.strftime(_TICKTICK_DATE_FMT),
+                )
+                for t in completed:
+                    pid = t.get("projectId")
+                    # The completed endpoint can return tasks whose project
+                    # has since been deleted (no longer in list_projects).
+                    # Skip those — inserting would violate the FK and the
+                    # active-task path treats unknown projects the same.
+                    if pid not in seen_project_ids:
+                        log.debug(
+                            "skipping orphan completion %s (project %s missing)",
+                            t.get("id"), pid,
+                        )
+                        continue
+                    # Include in seen_task_ids before the sweep so a
+                    # task that flipped status=0 → status=2 since the
+                    # last sync isn't transiently re-archived. (The
+                    # sweep's `status = 0` filter already protects
+                    # against this once the upsert below lands, but
+                    # the explicit add documents the invariant.)
+                    seen_task_ids.add(t["id"])
+                    cur.execute(
+                        "INSERT INTO tasks(id, project_id, title, content, status, "
+                        "priority, due_date, start_date, completed_at, tags, "
+                        "repeat_flag, updated_at, raw_json) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                        "ON CONFLICT(id) DO UPDATE SET "
+                        "project_id=excluded.project_id, title=excluded.title, "
+                        "content=excluded.content, status=excluded.status, "
+                        "priority=excluded.priority, due_date=excluded.due_date, "
+                        "start_date=excluded.start_date, "
+                        "completed_at=excluded.completed_at, tags=excluded.tags, "
+                        "repeat_flag=excluded.repeat_flag, "
+                        "updated_at=excluded.updated_at, raw_json=excluded.raw_json",
+                        (
+                            t["id"], pid,
+                            t["title"], t.get("content"),
+                            t.get("status", 2), t.get("priority"),
                             t.get("dueDate"), t.get("startDate"),
                             t.get("completedTime"),
                             json.dumps(t.get("tags", [])),
