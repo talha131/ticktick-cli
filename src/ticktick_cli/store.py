@@ -43,6 +43,19 @@ CREATE TABLE IF NOT EXISTS local_signals (
   promotion_count INTEGER DEFAULT 0
 );
 
+-- Per-(project, UTC day) cache of POST /open/v1/task/completed results.
+-- Populated by recent.list_recent for historical days (day < today_utc)
+-- only — today's results are deliberately never cached so that swipe-
+-- completions from the mobile app are visible to the next invocation.
+-- See recent.py for the eviction/refresh semantics.
+CREATE TABLE IF NOT EXISTS completed_cache (
+  project_id TEXT NOT NULL,
+  day TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  tasks_json TEXT NOT NULL,
+  PRIMARY KEY (project_id, day)
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_status_due ON tasks(status, due_date);
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_completed ON tasks(status, completed_at DESC);
