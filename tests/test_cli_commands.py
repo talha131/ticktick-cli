@@ -352,6 +352,46 @@ def test_edit_dry_run_prints_payload_without_api_call_or_sync(
     assert sync_calls == []
 
 
+def test_edit_full_prints_entire_task_response(
+    store, no_sync, httpx_mock, capsys
+) -> None:
+    """--full prints the full TickTick task object instead of the
+    abridged {id, title, due_date, start_date, priority} summary.
+    Verified by asserting that response fields the summary omits
+    (e.g. projectId, content, modifiedTime) appear in stdout."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={
+            "id": "t1", "projectId": "p1", "title": "Renamed",
+            "content": "extra notes", "modifiedTime": "2026-05-30T12:00:00+0000",
+        },
+    )
+    assert _run(["edit", "t1", "--title", "Renamed", "--full"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["projectId"] == "p1"
+    assert out["content"] == "extra notes"
+    assert out["modifiedTime"] == "2026-05-30T12:00:00+0000"
+
+
+def test_edit_dry_run_wins_over_full(
+    store, monkeypatch, httpx_mock, capsys
+) -> None:
+    """When both --dry-run and --full are passed, dry-run wins — there
+    is no API response to print full of, so stdout is the PATCH body."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    monkeypatch.setattr(Syncer, "run", lambda self: None)
+
+    assert _run([
+        "edit", "t1", "--title", "Renamed", "--dry-run", "--full",
+    ]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {"id": "t1", "projectId": "p1", "title": "Renamed"}
+
+
 # ---- cmd_punt ---------------------------------------------------------------
 
 
@@ -436,6 +476,26 @@ def test_punt_dry_run_prints_payload_without_api_call_or_sync(
     assert sync_calls == []
 
 
+def test_punt_full_prints_entire_task_response(
+    store, no_sync, httpx_mock, capsys
+) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={
+            "id": "t1", "projectId": "p1", "title": "Test task",
+            "startDate": "2026-06-06T00:00:00+0000",
+            "modifiedTime": "2026-05-30T12:00:00+0000",
+        },
+    )
+    assert _run(["punt", "t1", "7d", "--full"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["projectId"] == "p1"
+    assert out["modifiedTime"] == "2026-05-30T12:00:00+0000"
+
+
 # ---- cmd_bump ---------------------------------------------------------------
 
 
@@ -514,6 +574,25 @@ def test_bump_dry_run_prints_payload_without_api_call_or_sync(
     payload = json.loads(capsys.readouterr().out)
     assert payload == {"id": "t1", "projectId": "p1", "priority": 5}
     assert sync_calls == []
+
+
+def test_bump_full_prints_entire_task_response(
+    store, no_sync, httpx_mock, capsys
+) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={
+            "id": "t1", "projectId": "p1", "title": "Test task",
+            "priority": 5, "modifiedTime": "2026-05-30T12:00:00+0000",
+        },
+    )
+    assert _run(["bump", "t1", "high", "--full"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["projectId"] == "p1"
+    assert out["modifiedTime"] == "2026-05-30T12:00:00+0000"
 
 
 # ---- cmd_delete -------------------------------------------------------------

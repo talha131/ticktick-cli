@@ -412,13 +412,16 @@ def cmd_edit(args: argparse.Namespace) -> int:
     Syncer(store=store, client=client,
            excluded_names=settings.filters.excluded_projects_by_name,
            completions_lookback_days=settings.sync.completions_lookback_days).run()
-    print(json.dumps({
-        "id": args.task_id,
-        "title": updated.get("title"),
-        "due_date": updated.get("dueDate"),
-        "start_date": updated.get("startDate"),
-        "priority": updated.get("priority"),
-    }, indent=2))
+    if args.full:
+        print(json.dumps(updated, indent=2))
+    else:
+        print(json.dumps({
+            "id": args.task_id,
+            "title": updated.get("title"),
+            "due_date": updated.get("dueDate"),
+            "start_date": updated.get("startDate"),
+            "priority": updated.get("priority"),
+        }, indent=2))
     return 0
 
 
@@ -447,13 +450,16 @@ def cmd_punt(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2))
         return 0
     client = _build_client()
-    client.update_task(
+    updated = client.update_task(
         args.task_id, project_id=project_id, start_date=start_iso,
     )
     Syncer(store=store, client=client,
            excluded_names=settings.filters.excluded_projects_by_name,
            completions_lookback_days=settings.sync.completions_lookback_days).run()
-    print(json.dumps({"id": args.task_id, "start_date": start_iso}, indent=2))
+    if args.full:
+        print(json.dumps(updated, indent=2))
+    else:
+        print(json.dumps({"id": args.task_id, "start_date": start_iso}, indent=2))
     return 0
 
 
@@ -471,14 +477,17 @@ def cmd_bump(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2))
         return 0
     client = _build_client()
-    client.update_task(
+    updated = client.update_task(
         args.task_id, project_id=project_id, priority=priority,
     )
     Syncer(store=store, client=client,
            excluded_names=settings.filters.excluded_projects_by_name,
            completions_lookback_days=settings.sync.completions_lookback_days).run()
-    print(json.dumps({"id": args.task_id,
-                      "priority": priority, "level": args.level}, indent=2))
+    if args.full:
+        print(json.dumps(updated, indent=2))
+    else:
+        print(json.dumps({"id": args.task_id,
+                          "priority": priority, "level": args.level}, indent=2))
     return 0
 
 
@@ -884,6 +893,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_edit.add_argument("--dry-run", dest="dry_run", action="store_true",
         help="Print the PATCH body that would be sent to TickTick as JSON "
              "and exit without making the API call or re-syncing the mirror.")
+    p_edit.add_argument("--full", action="store_true",
+        help="On a successful update, print the entire TickTick task "
+             "response object instead of the abridged summary. No-op when "
+             "combined with --dry-run (there is no response to print).")
     p_edit.set_defaults(func=cmd_edit)
 
     p_punt = sub.add_parser("punt",
@@ -893,6 +906,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="ISO 8601, '+7d', 'monday', etc. — same grammar as `edit --start`.")
     p_punt.add_argument("--dry-run", dest="dry_run", action="store_true",
         help="Preview the PATCH body without calling the API. See `edit --dry-run`.")
+    p_punt.add_argument("--full", action="store_true",
+        help="Print the entire TickTick task response. See `edit --full`.")
     p_punt.set_defaults(func=cmd_punt)
 
     p_bump = sub.add_parser("bump",
@@ -902,6 +917,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Priority level: none, low, medium, or high.")
     p_bump.add_argument("--dry-run", dest="dry_run", action="store_true",
         help="Preview the PATCH body without calling the API. See `edit --dry-run`.")
+    p_bump.add_argument("--full", action="store_true",
+        help="Print the entire TickTick task response. See `edit --full`.")
     p_bump.set_defaults(func=cmd_bump)
 
     p_remind = sub.add_parser("remind",
