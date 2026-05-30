@@ -13,6 +13,38 @@ portal, lives at [`docs/ticktick-openapi.md`](docs/ticktick-openapi.md) — that
 authoritative source for endpoint shapes, request/response schemas, and
 the Task object's field list. Consult it before assuming.
 
+This repo deliberately does NOT contain ranking, snooze, mode, effort
+estimation, or report generation logic. Those concerns live in a
+separate **task workspace** at `~/Documents/Tasks/` (the caller). When
+a user opens Claude Code there, they get a different CLAUDE.md geared
+toward task management; that session calls `ticktick-cli` as a tool.
+Feature requests bubble up from there — see
+[`memory/feature_request_triage_edit_subcommand.md`](memory/feature_request_triage_edit_subcommand.md)
+for the current one.
+
+## Persistent context — check `memory/` when relevant
+
+This repo has a `memory/` directory for context that outlives any
+single conversation: design decisions, predecessor history, pending
+feature requests with full specs. Lighter than the workspace's
+memory pattern — no "read at session start" rule, since dev work
+here is episodic. **Check `memory/MEMORY.md` when you're working on
+something the file titles suggest is relevant.**
+
+Current entries:
+
+- `project_predecessor_todolist_optimizer.md` — this repo replaced
+  `todolist-optimizer` on 2026-05-30. The predecessor is archived
+  at `github.com/talha131/todolist-optimizer` and holds the
+  original spec + plan + design history. Useful if you're asked
+  "why did we pick X?".
+- `feature_request_triage_edit_subcommand.md` — full spec for the
+  highest-priority follow-up: extending `update_task` to accept
+  `startDate` and `priority`, adding `ticktick-cli edit` and
+  optionally `ticktick-cli punt`. The workspace agent is waiting
+  on this to make triage verbs ("punt X for 5d", "bump X to
+  high") executable from conversation.
+
 ## Subcommand surface
 
 | Command | Purpose | Endpoint |
@@ -93,8 +125,11 @@ ticktick-cli/
 ├── tests/
 │   ├── test_*.py              ← per-module unit tests
 │   └── fixtures/              ← pytest-httpx cassette
-└── docs/
-    └── ticktick-openapi.md    ← TickTick Open API reference (verbatim)
+├── docs/
+│   └── ticktick-openapi.md    ← TickTick Open API reference (verbatim)
+└── memory/
+    ├── MEMORY.md              ← index of persistent context
+    └── *.md                   ← design decisions, feature requests, lineage
 ```
 
 ## Tech stack
@@ -220,13 +255,21 @@ Currently wrapped:
 - `POST /open/v1/project/{projectId}/task/{taskId}/complete`
 - `DELETE /open/v1/project/{projectId}/task/{taskId}`
 
-Documented but not yet wrapped (good follow-ups):
-- `GET /open/v1/project/{projectId}/task/{taskId}` — fetch a single task
-- `POST /open/v1/task/filter` — advanced filtering server-side. Closest
-  the Open API gets to "smart lists" — but note it's ad-hoc filtering,
-  NOT a way to enumerate the user's saved Smart Lists or named
-  Filters; those have no API surface.
-- Habit + Focus APIs — entirely separate domain; ignore unless asked
+Documented but not yet wrapped:
+
+- **`POST /open/v1/task/{taskId}` — extending `update_task` to accept
+  `startDate`, `dueDate`, `priority`, `title`, `content`.** Currently
+  only `reminders` flows through. **This is the highest-priority gap**
+  — the workspace agent's triage verbs ("punt X for 5d", "bump X to
+  high") are blocked on it. Full spec at
+  [`memory/feature_request_triage_edit_subcommand.md`](memory/feature_request_triage_edit_subcommand.md).
+- `GET /open/v1/project/{projectId}/task/{taskId}` — fetch a single
+  task. Low priority; the mirror has most of what we'd need.
+- `POST /open/v1/task/filter` — advanced filtering server-side.
+  Closest the Open API gets to "smart lists" — but note it's ad-hoc
+  filtering, NOT a way to enumerate the user's saved Smart Lists or
+  named Filters; those have no API surface.
+- Habit + Focus APIs — entirely separate domain; ignore unless asked.
 
 ## What NOT to do
 
