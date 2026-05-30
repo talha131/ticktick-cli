@@ -337,3 +337,104 @@ def test_update_task_omits_tags_when_none(httpx_mock) -> None:
     import json as _json
     body = _json.loads(httpx_mock.get_request().content)
     assert "tags" not in body
+
+
+def test_update_task_sets_title(httpx_mock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.update_task("t1", project_id="p1", title="Renamed")
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body["title"] == "Renamed"
+
+
+def test_update_task_sets_content(httpx_mock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.update_task("t1", project_id="p1", content="New notes")
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body["content"] == "New notes"
+
+
+def test_update_task_sets_due_date(httpx_mock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.update_task("t1", project_id="p1",
+                       due_date="2026-06-15T15:00:00+0000")
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body["dueDate"] == "2026-06-15T15:00:00+0000"
+
+
+def test_update_task_sets_start_date(httpx_mock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.update_task("t1", project_id="p1",
+                       start_date="2026-06-15T09:00:00+0000")
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body["startDate"] == "2026-06-15T09:00:00+0000"
+
+
+def test_update_task_sets_priority(httpx_mock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.update_task("t1", project_id="p1", priority=5)
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body["priority"] == 5
+
+
+def test_update_task_clears_dates_with_empty_string(httpx_mock) -> None:
+    """Empty string is the explicit 'clear' value, matching the
+    reminders=[] / repeat_flag='' convention. NOTE: TickTick's response
+    to this on the server side is not contractually documented — the
+    user must verify manually that the field actually disappears in the
+    UI (not just becomes 1970-01-01). If TickTick rejects empty-string
+    for dates, switch to a different strategy and update this test."""
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.update_task("t1", project_id="p1", due_date="", start_date="")
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body["dueDate"] == ""
+    assert body["startDate"] == ""
+
+
+def test_update_task_omits_new_fields_when_none(httpx_mock) -> None:
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.update_task("t1", project_id="p1")
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    for k in ("title", "content", "dueDate", "startDate", "priority"):
+        assert k not in body, f"{k!r} should be omitted when None"

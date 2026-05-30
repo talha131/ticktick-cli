@@ -81,6 +81,11 @@ class TickTickClient:
         task_id: str,
         *,
         project_id: str,
+        title: str | None = None,
+        content: str | None = None,
+        due_date: str | None = None,
+        start_date: str | None = None,
+        priority: int | None = None,
         reminders: list[str] | None = None,
         repeat_flag: str | None = None,
         tags: list[str] | None = None,
@@ -91,8 +96,26 @@ class TickTickClient:
 
         For each optional kwarg, `None` means "don't touch this field" and
         any other value (including `""` or `[]`) is sent through to
-        explicitly set or clear it."""
+        explicitly set or clear it.
+
+        Caveat for date fields: TickTick's response to dueDate="" /
+        startDate="" is not contractually documented. Empty-string is
+        what we send for "clear this date" because it matches the
+        repeat_flag="" / reminders=[] convention, but you should verify
+        in the TickTick UI that a cleared date actually disappears
+        (rather than becoming 1970-01-01). If empty-string doesn't
+        clear the field server-side, this needs a different strategy."""
         payload: dict[str, Any] = {"id": task_id, "projectId": project_id}
+        if title is not None:
+            payload["title"] = title
+        if content is not None:
+            payload["content"] = content
+        if due_date is not None:
+            payload["dueDate"] = due_date
+        if start_date is not None:
+            payload["startDate"] = start_date
+        if priority is not None:
+            payload["priority"] = priority
         if reminders is not None:
             payload["reminders"] = reminders
         if repeat_flag is not None:
