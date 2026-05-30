@@ -217,6 +217,7 @@ def cmd_recent(args: argparse.Namespace) -> int:
 
 
 _PRIORITY_NAMES = {"none": 0, "low": 1, "medium": 3, "high": 5}
+_PRIORITY_INTS_TO_NAMES = {v: k for k, v in _PRIORITY_NAMES.items()}
 
 
 def _parse_priority(s: str) -> int:
@@ -464,9 +465,12 @@ def cmd_punt(args: argparse.Namespace) -> int:
 
 
 def cmd_bump(args: argparse.Namespace) -> int:
-    """Sugar over `edit --priority`. Takes a name, never a number —
-    the verb is for quick conversational triage ("bump X to high")."""
-    priority = _PRIORITY_NAMES[args.level]
+    """Sugar over `edit --priority`. Accepts a name (none/low/medium/high)
+    or a canonical TickTick numeric priority (0/1/3/5) — both forms are
+    valid for quick conversational triage ("bump X to high", "bump X to 5").
+    The output `level` field is always the name, derived from the int via
+    a reverse map, so callers see a consistent shape regardless of input."""
+    priority = args.level  # already an int via _parse_priority
     settings = _load_settings_from_home()
     store = _open_store(settings)
     project_id = _lookup_project_id(store, args.task_id)
@@ -486,8 +490,8 @@ def cmd_bump(args: argparse.Namespace) -> int:
     if args.full:
         print(json.dumps(updated, indent=2))
     else:
-        print(json.dumps({"id": args.task_id,
-                          "priority": priority, "level": args.level}, indent=2))
+        print(json.dumps({"id": args.task_id, "priority": priority,
+                          "level": _PRIORITY_INTS_TO_NAMES[priority]}, indent=2))
     return 0
 
 
@@ -911,10 +915,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_punt.set_defaults(func=cmd_punt)
 
     p_bump = sub.add_parser("bump",
-        help="Set task priority by name (sugar over `edit --priority`).")
+        help="Set task priority (sugar over `edit --priority`).")
     p_bump.add_argument("task_id")
-    p_bump.add_argument("level", choices=list(_PRIORITY_NAMES),
-        help="Priority level: none, low, medium, or high.")
+    p_bump.add_argument("level", type=_parse_priority, metavar="LEVEL",
+        help="Priority: name (none/low/medium/high) or canonical int (0/1/3/5).")
     p_bump.add_argument("--dry-run", dest="dry_run", action="store_true",
         help="Preview the PATCH body without calling the API. See `edit --dry-run`.")
     p_bump.add_argument("--full", action="store_true",

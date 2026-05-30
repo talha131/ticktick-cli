@@ -526,13 +526,75 @@ def test_bump_none_sends_priority_0(store, no_sync, httpx_mock) -> None:
 
 
 def test_bump_rejects_invalid_level(store, no_sync) -> None:
-    """argparse's `choices=` rejects anything outside the allowed set
-    with SystemExit(2)."""
+    """`_parse_priority` rejects anything outside name + canonical-int
+    set; argparse surfaces the ArgumentTypeError as SystemExit(2)."""
     _seed_project(store, "p1", "Work")
     _seed_task(store, "t1", "p1")
     with pytest.raises(SystemExit) as exc_info:
         _run(["bump", "t1", "ultra"])
     assert exc_info.value.code == 2
+
+
+def test_bump_accepts_numeric_priority(store, no_sync, httpx_mock) -> None:
+    """`bump t1 5` should produce the same payload as `bump t1 high` —
+    the parser type-coerces the int input through _parse_priority."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    assert _run(["bump", "t1", "5"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["priority"] == 5
+
+
+def test_bump_numeric_and_name_produce_equivalent_dry_run(
+    store, no_sync, capsys
+) -> None:
+    """Whether you pass `high` or `5`, the PATCH body is identical."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+
+    assert _run(["bump", "t1", "high", "--dry-run"]) == 0
+    by_name = json.loads(capsys.readouterr().out)
+
+    assert _run(["bump", "t1", "5", "--dry-run"]) == 0
+    by_number = json.loads(capsys.readouterr().out)
+
+    assert by_name == by_number == {
+        "id": "t1", "projectId": "p1", "priority": 5,
+    }
+
+
+def test_bump_rejects_non_canonical_numeric(store, no_sync) -> None:
+    """`_parse_priority` only accepts 0/1/3/5 numerically — 2/4/6/7 etc.
+    are rejected with SystemExit(2)."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    with pytest.raises(SystemExit) as exc_info:
+        _run(["bump", "t1", "2"])
+    assert exc_info.value.code == 2
+
+
+def test_bump_numeric_input_emits_name_in_level_field(
+    store, no_sync, httpx_mock, capsys
+) -> None:
+    """Output schema is {id, priority, level} where `level` is always
+    the name (high/medium/low/none). Numeric input still yields the
+    name via reverse map so callers get a consistent shape."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    assert _run(["bump", "t1", "5"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["priority"] == 5
+    assert out["level"] == "high"
 
 
 def test_bump_resyncs_after_write(store, monkeypatch, httpx_mock) -> None:
