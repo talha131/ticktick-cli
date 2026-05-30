@@ -130,6 +130,41 @@ class TickTickClient:
         )
         r.raise_for_status()
 
+    def list_completed_tasks(
+        self,
+        *,
+        project_ids: list[str] | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """POST /open/v1/task/completed. Returns the array of completed
+        Task objects directly (the endpoint responds with a JSON array,
+        not an envelope).
+
+        All filter fields are optional, but the API docs recommend
+        sending at least one to keep the result set bounded. Dates are
+        ISO 8601 with timezone offset, e.g. "2026-05-01T00:00:00+0000"
+        — the same format TickTick uses everywhere else (dueDate,
+        completedTime, etc.).
+
+        This is the only documented way to retrieve historical
+        completions; /open/v1/project/{id}/data returns active tasks
+        only."""
+        payload: dict[str, Any] = {}
+        if project_ids is not None:
+            payload["projectIds"] = project_ids
+        if start_date is not None:
+            payload["startDate"] = start_date
+        if end_date is not None:
+            payload["endDate"] = end_date
+        r = httpx.post(
+            f"{self.base_url}/task/completed",
+            headers=self._headers(),
+            json=payload,
+        )
+        r.raise_for_status()
+        return r.json()
+
     def move_task(
         self,
         task_id: str,
