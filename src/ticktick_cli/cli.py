@@ -401,6 +401,35 @@ def cmd_edit(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_punt(args: argparse.Namespace) -> int:
+    """Sugar over `edit --start WHEN`.
+
+    Sets the task's start date so it disappears from default views
+    until that date. Deliberately does NOT touch dueDate — the intent
+    is "hide for now", not "miss the deadline".
+
+    The WHEN argument is the same grammar as `edit --start` — see
+    dates.parse_when."""
+    try:
+        start_iso = parse_when(args.duration)
+    except ValueError as e:
+        sys.stderr.write(f"{e}\n")
+        return 2
+
+    settings = _load_settings_from_home()
+    store = _open_store(settings)
+    project_id = _lookup_project_id(store, args.task_id)
+    client = _build_client()
+    client.update_task(
+        args.task_id, project_id=project_id, start_date=start_iso,
+    )
+    Syncer(store=store, client=client,
+           excluded_names=settings.filters.excluded_projects_by_name,
+           completions_lookback_days=settings.sync.completions_lookback_days).run()
+    print(json.dumps({"id": args.task_id, "start_date": start_iso}, indent=2))
+    return 0
+
+
 def cmd_move(args: argparse.Namespace) -> int:
     """Move a task to a different project via TickTick API and re-sync."""
     settings = _load_settings_from_home()
@@ -801,6 +830,13 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="P",
         help="One of: none, low, medium, high — or numeric 0/1/3/5.")
     p_edit.set_defaults(func=cmd_edit)
+
+    p_punt = sub.add_parser("punt",
+        help="Push a task's start date forward (hide it from views until WHEN).")
+    p_punt.add_argument("task_id")
+    p_punt.add_argument("duration", metavar="WHEN",
+        help="Same grammar as `edit --start`: ISO 8601, '+7d', 'monday', etc.")
+    p_punt.set_defaults(func=cmd_punt)
 
     p_remind = sub.add_parser("remind",
         help="Set reminders on an existing task (replaces existing reminders).")

@@ -325,6 +325,46 @@ def test_edit_resyncs_after_write(store, monkeypatch, httpx_mock) -> None:
     assert len(sync_calls) == 1
 
 
+# ---- cmd_punt ---------------------------------------------------------------
+
+
+def test_punt_sets_start_date(store, no_sync, httpx_mock) -> None:
+    """`punt t1 7d` should send a startDate update with a non-empty
+    value and leave dueDate untouched."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    assert _run(["punt", "t1", "7d"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert "startDate" in body and body["startDate"]
+    assert "dueDate" not in body
+
+
+def test_punt_accepts_weekday_name(store, no_sync, httpx_mock) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    assert _run(["punt", "t1", "monday"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert "startDate" in body
+
+
+def test_punt_rejects_garbage(store, no_sync, capsys) -> None:
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1")
+    # parse_when raises ValueError → handler turns it into exit 2.
+    assert _run(["punt", "t1", "flarble"]) == 2
+    assert "cannot parse" in capsys.readouterr().err.lower()
+
+
 # ---- cmd_delete -------------------------------------------------------------
 
 
