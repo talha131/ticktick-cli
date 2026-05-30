@@ -18,6 +18,7 @@ from pathlib import Path
 from .auth import TickTickAuth, TokenStore
 from .candidates import list_candidates
 from .config import load_settings
+from .dates import parse_when
 from .store import Store
 from .sync import Syncer
 from .tags import find_tasks_with_tag, get_task_tags
@@ -350,8 +351,6 @@ def cmd_edit(args: argparse.Namespace) -> int:
     Date inputs are parsed by `dates.parse_when` which accepts ISO
     8601 verbatim, relative durations (`+7d`, `3h`), weekday names,
     and `today`/`tomorrow`. See dates.py for the full grammar."""
-    from .dates import parse_when
-
     if args.due and args.clear_due:
         sys.stderr.write("Pass either --due or --clear-due, not both.\n")
         return 2
@@ -371,8 +370,8 @@ def cmd_edit(args: argparse.Namespace) -> int:
 
     if all(v is None for v in (title, content, due_date, start_date, priority)):
         sys.stderr.write(
-            "Pass at least one of --title, --content, --due, --clear-due, "
-            "--start, --clear-start, --priority.\n"
+            "Pass at least one of --title, --content, --due/--clear-due, "
+            "--start/--clear-start, --priority.\n"
         )
         return 2
 
