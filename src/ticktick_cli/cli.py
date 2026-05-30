@@ -19,6 +19,7 @@ from .auth import TickTickAuth, TokenStore
 from .candidates import list_candidates
 from .config import load_settings
 from .dates import parse_when
+from .recent import list_recent
 from .store import Store
 from .sync import Syncer
 from .tags import find_tasks_with_tag, get_task_tags
@@ -194,23 +195,50 @@ def cmd_candidates(args: argparse.Namespace) -> int:
 
 
 def cmd_recent(args: argparse.Namespace) -> int:
-    """Print last N completed tasks (for context on what the user just finished)."""
+    """Print recently-completed tasks as JSON for downstream consumers.
+
+    Fetches its own completions via POST /open/v1/task/completed (rather
+    than reading the main tasks mirror) so swipe-completed tasks from
+    the TickTick mobile app are visible without a separate `sync`. The
+    `completed_cache` table memoizes historical days so re-runs within
+    the same calendar day are near-instant — see `recent.list_recent`
+    for the caching semantics.
+
+    Default output is the abridged shape; `--full` prints raw TickTick
+    task bodies including content/notes, reminders, repeat, etc."""
     store = _open_store()
-    rows = store.conn.execute(
-        "SELECT t.id, t.title, t.project_id, t.completed_at, p.name AS project_name "
-        "FROM tasks t LEFT JOIN projects p ON t.project_id = p.id "
-        "WHERE t.status = 2 AND t.completed_at IS NOT NULL "
-        "ORDER BY t.completed_at DESC LIMIT ?",
-        (args.limit,),
+    project_id_filter: str | None = None
+    if args.project:
+        project_id_filter = _resolve_project_id(store, args.project)
+    client = _build_client()
+    tasks = list_recent(
+        store,
+        client,
+        days=args.days,
+        project_id_filter=project_id_filter,
+        limit=args.limit,
     )
+
+    if args.full:
+        print(json.dumps(tasks, indent=2))
+        return 0
+
+    proj_names = {
+        r["id"]: r["name"]
+        for r in store.conn.execute("SELECT id, name FROM projects")
+    }
     out = [
         {
-            "id": r["id"],
-            "title": r["title"],
-            "project": r["project_name"] or r["project_id"],
-            "completed_at": r["completed_at"],
+            "id": t.get("id"),
+            "title": t.get("title"),
+            "project": proj_names.get(t.get("projectId"), t.get("projectId")),
+            "priority": t.get("priority"),
+            "tags": t.get("tags", []),
+            "completed_at": t.get("completedTime"),
+            "due_date": t.get("dueDate"),
+            "start_date": t.get("startDate"),
         }
-        for r in rows
+        for t in tasks
     ]
     print(json.dumps(out, indent=2))
     return 0
@@ -822,8 +850,18 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cands.set_defaults(func=cmd_candidates)
 
     p_recent = sub.add_parser("recent",
-        help="Print last N completed tasks as JSON.")
-    p_recent.add_argument("--limit", type=int, default=10)
+        help="Print recently-completed tasks as JSON.")
+    p_recent.add_argument("--limit", type=int, default=20,
+        help="Cap the number of tasks returned. Applied AFTER sort, so "
+             "the most-recent N survive even when project mix varies.")
+    p_recent.add_argument("--days", type=int, default=7,
+        help="Look back this many days from today (inclusive). Default 7.")
+    p_recent.add_argument("--project", default=None,
+        help="Filter to one project by name (case-insensitive) or id. "
+             "Default: all non-archived projects.")
+    p_recent.add_argument("--full", action="store_true",
+        help="Print the entire TickTick task body per row (content, "
+             "reminders, repeat, etc.) instead of the abridged summary.")
     p_recent.set_defaults(func=cmd_recent)
 
     p_add = sub.add_parser("add", help="Create a task in TickTick.")

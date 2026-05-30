@@ -978,3 +978,215 @@ def test_add_task_with_emoji_tag_propagates_to_api(
                  "--tag", "🔥urgent", "--tag", "💰finance"]) == 0
     body = json.loads(httpx_mock.get_request().content)
     assert body["tags"] == ["🔥urgent", "💰finance"]
+
+
+# ---- cmd_recent -------------------------------------------------------------
+#
+# Wire-shape tests for the recent handler. The cache + per-day batching
+# logic is covered in test_recent.py; here we focus on argv → HTTP body
+# and abridged-vs-full output shape.
+
+
+def test_recent_emits_abridged_shape_by_default(
+    store, no_sync, httpx_mock, capsys,
+) -> None:
+    """Default output matches the spec's abridged shape exactly —
+    {id, title, project, priority, tags, completed_at, due_date, start_date}.
+    Project id is replaced with its human-readable name."""
+    _seed_project(store, "p1", "Work")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/completed",
+        json=[{
+            "id": "a", "projectId": "p1", "title": "Wrote tests",
+            "status": 2, "priority": 5,
+            "tags": ["work", "🔥urgent"],
+            "completedTime": "2026-05-30T13:00:00+0000",
+            "dueDate": "2026-05-30T00:00:00+0000",
+            "startDate": "2026-05-29T00:00:00+0000",
+            "content": "extra notes",
+            "modifiedTime": "2026-05-30T13:00:01+0000",
+        }],
+    )
+
+    assert _run(["recent"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out == [{
+        "id": "a",
+        "title": "Wrote tests",
+        "project": "Work",
+        "priority": 5,
+        "tags": ["work", "🔥urgent"],
+        "completed_at": "2026-05-30T13:00:00+0000",
+        "due_date": "2026-05-30T00:00:00+0000",
+        "start_date": "2026-05-29T00:00:00+0000",
+    }]
+
+
+def test_recent_full_prints_entire_task_object(
+    store, no_sync, httpx_mock, capsys,
+) -> None:
+    """--full prints raw TickTick task bodies including fields the
+    abridged shape drops (content, modifiedTime, etag, etc.)."""
+    _seed_project(store, "p1", "Work")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/completed",
+        json=[{
+            "id": "a", "projectId": "p1", "title": "Wrote tests",
+            "status": 2, "priority": 5,
+            "completedTime": "2026-05-30T13:00:00+0000",
+            "content": "extra notes",
+            "modifiedTime": "2026-05-30T13:00:01+0000",
+            "etag": "abc123",
+        }],
+    )
+
+    assert _run(["recent", "--full"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert len(out) == 1
+    assert out[0]["content"] == "extra notes"
+    assert out[0]["modifiedTime"] == "2026-05-30T13:00:01+0000"
+    assert out[0]["etag"] == "abc123"
+
+
+def test_recent_project_filter_by_name_resolves_to_id(
+    store, no_sync, httpx_mock, capsys,
+) -> None:
+    """--project Work → API gets projectIds=[p1], not the literal name."""
+    _seed_project(store, "p1", "Work")
+    _seed_project(store, "p2", "Personal")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/completed",
+        json=[],
+    )
+
+    assert _run(["recent", "--project", "Work"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["projectIds"] == ["p1"]
+
+
+def test_recent_project_filter_by_id_passes_through(
+    store, no_sync, httpx_mock, capsys,
+) -> None:
+    """A raw project id on --project is accepted verbatim."""
+    _seed_project(store, "p1", "Work")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/completed",
+        json=[],
+    )
+
+    assert _run(["recent", "--project", "p1"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["projectIds"] == ["p1"]
+
+
+def test_recent_unknown_project_exits_2(store, no_sync, capsys) -> None:
+    """--project that matches neither id nor name fails fast at exit 2,
+    mirroring _resolve_project_id's error handling for other handlers."""
+    _seed_project(store, "p1", "Work")
+    with pytest.raises(SystemExit) as exc_info:
+        _run(["recent", "--project", "Nonexistent"])
+    assert exc_info.value.code == 2
+
+
+def test_recent_empty_results_print_empty_list(
+    store, no_sync, httpx_mock, capsys,
+) -> None:
+    """No completions in the window → stdout is `[]` (valid JSON), exit 0."""
+    _seed_project(store, "p1", "Work")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/completed",
+        json=[],
+    )
+
+    assert _run(["recent"]) == 0
+    assert json.loads(capsys.readouterr().out) == []
+
+
+def test_recent_default_days_is_seven(
+    store, no_sync, httpx_mock, capsys,
+) -> None:
+    """Default --days is 7. The API call's startDate should be ~6 days
+    before today (7-day inclusive window)."""
+    _seed_project(store, "p1", "Work")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/completed",
+        json=[],
+    )
+
+    assert _run(["recent"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    # Compute today vs startDate diff — should be 6 days.
+    from datetime import datetime, timezone
+    start = datetime.strptime(body["startDate"], "%Y-%m-%dT%H:%M:%S%z")
+    now = datetime.now(timezone.utc)
+    delta_days = (now.date() - start.date()).days
+    assert delta_days == 6
+
+
+def test_recent_custom_days_widens_window(
+    store, no_sync, httpx_mock, capsys,
+) -> None:
+    """--days 14 → API startDate is 13 days before today."""
+    _seed_project(store, "p1", "Work")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/completed",
+        json=[],
+    )
+
+    assert _run(["recent", "--days", "14"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    from datetime import datetime, timezone
+    start = datetime.strptime(body["startDate"], "%Y-%m-%dT%H:%M:%S%z")
+    now = datetime.now(timezone.utc)
+    delta_days = (now.date() - start.date()).days
+    assert delta_days == 13
+
+
+def test_recent_limit_caps_result_count(
+    store, no_sync, httpx_mock, capsys,
+) -> None:
+    """--limit applies AFTER cross-project sort — the most-recent N
+    survive even when project mix varies."""
+    _seed_project(store, "p1", "Work")
+    _seed_project(store, "p2", "Personal")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/completed",
+        json=[
+            {"id": "old1", "projectId": "p1", "title": "old1", "status": 2,
+             "completedTime": "2026-05-25T10:00:00+0000"},
+            {"id": "new1", "projectId": "p2", "title": "new1", "status": 2,
+             "completedTime": "2026-05-30T12:00:00+0000"},
+            {"id": "mid1", "projectId": "p1", "title": "mid1", "status": 2,
+             "completedTime": "2026-05-28T10:00:00+0000"},
+        ],
+    )
+
+    assert _run(["recent", "--limit", "2"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert [t["id"] for t in out] == ["new1", "mid1"]
+
+
+def test_recent_does_not_call_syncer(
+    store, monkeypatch, httpx_mock, capsys,
+) -> None:
+    """Unlike write handlers, `recent` is a pure read — no Syncer.run().
+    The cache is its own state, independent of the main tasks mirror."""
+    _seed_project(store, "p1", "Work")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/completed",
+        json=[],
+    )
+    sync_calls: list[int] = []
+    monkeypatch.setattr(Syncer, "run", lambda self: sync_calls.append(1))
+
+    assert _run(["recent"]) == 0
+    assert sync_calls == []
