@@ -75,6 +75,35 @@ def test_find_tasks_with_tag_ignore_case(tmp_path: Path) -> None:
     assert sorted(r["id"] for r in rows) == ["t1", "t2", "t3"]
 
 
+def test_get_task_tags_round_trips_emoji(tmp_path: Path) -> None:
+    """SQLite stores the tag list as a JSON string (`json.dumps` with
+    ensure_ascii=True, the Python default — emojis go in as \\uXXXX
+    surrogate pairs). The reader must materialize them back to literal
+    code points so downstream string comparisons see what the user
+    typed, not their escaped form."""
+    s = Store(tmp_path / "tasks.db"); s.init_schema()
+    _seed(s, [("t1", "p1", "Buy milk", ["🔥urgent", "work", "🚀launch"])])
+    assert get_task_tags(s, "t1") == ["🔥urgent", "work", "🚀launch"]
+
+
+def test_find_tasks_with_tag_matches_emoji_exactly(tmp_path: Path) -> None:
+    """An emoji-bearing tag is an ordinary Python string — equality
+    matching against another identical string works, and an emoji tag
+    is distinct from any text tag (`🔥` ≠ `fire`)."""
+    s = Store(tmp_path / "tasks.db"); s.init_schema()
+    _seed(s, [
+        ("t1", "p1", "A", ["🔥urgent", "work"]),
+        ("t2", "p1", "B", ["fire", "work"]),
+        ("t3", "p1", "C", ["🔥urgent"]),
+    ])
+    rows = find_tasks_with_tag(s, "🔥urgent")
+    assert sorted(r["id"] for r in rows) == ["t1", "t3"]
+    # And the matched rows surface the emoji tags exactly as stored,
+    # not as escape sequences — callers need the literal string to
+    # send back to TickTick on a rewrite (rename/delete sweeps).
+    assert any("🔥urgent" in r["tags"] for r in rows)
+
+
 def test_find_tasks_with_tag_skips_tasks_without_tags(tmp_path: Path) -> None:
     s = Store(tmp_path / "tasks.db"); s.init_schema()
     _seed(s, [

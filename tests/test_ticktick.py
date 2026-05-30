@@ -246,6 +246,42 @@ def test_update_task_clears_tags_with_empty_list(httpx_mock) -> None:
     assert body["tags"] == []
 
 
+def test_create_task_emoji_tag_in_payload(httpx_mock) -> None:
+    """Emoji tags get serialized through httpx → JSON and arrive on the
+    server side intact. httpx uses json.dumps internally (ensure_ascii=True
+    by default, so the wire form is \\uXXXX surrogate pairs), but
+    json.loads on the receiving end materializes the original code points.
+    This test exercises that contract on the client send side."""
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task",
+        json={"id": "n", "projectId": "p1", "title": "Pay bills",
+              "tags": ["🔥urgent", "💰finance"]},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.create_task(project_id="p1", title="Pay bills",
+                       tags=["🔥urgent", "💰finance"])
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body["tags"] == ["🔥urgent", "💰finance"]
+
+
+def test_update_task_emoji_tag_in_payload(httpx_mock) -> None:
+    """Same emoji contract as create_task, but on the update path —
+    rename/delete sweeps go through this one, so a mangled UTF-8 would
+    silently corrupt every tag on every swept task."""
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.update_task("t1", project_id="p1", tags=["🚀launch", "work"])
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body["tags"] == ["🚀launch", "work"]
+
+
 def test_list_completed_tasks_posts_filter_body(httpx_mock) -> None:
     """All three filter keys land in the request body verbatim, and the
     JSON array response is returned unwrapped."""

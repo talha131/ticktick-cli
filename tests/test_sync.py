@@ -97,6 +97,31 @@ def test_sync_empty_project_list_raises_and_does_not_archive(tmp_path: Path) -> 
     assert row["status"] == 0
 
 
+def test_sync_persists_emoji_tags(tmp_path: Path) -> None:
+    """Emoji tags from TickTick must survive the sync → mirror →
+    get_task_tags round-trip without mangling. Stored JSON-escaped, read
+    back as literal code points (same contract the tag helpers rely on)."""
+    from ticktick_cli.tags import get_task_tags
+
+    s = Store(tmp_path / "tasks.db"); s.init_schema()
+    client = _client_returning(
+        projects=[{"id": "p1", "name": "GCE"}],
+        project_data={
+            "p1": {
+                "project": {"id": "p1", "name": "GCE"},
+                "tasks": [
+                    {"id": "t1", "title": "Ship it", "status": 0,
+                     "projectId": "p1",
+                     "tags": ["🔥urgent", "📅today", "work"],
+                     "modifiedTime": "2026-05-28T10:00:00+0000"},
+                ],
+            }
+        },
+    )
+    Syncer(store=s, client=client, excluded_names=[]).run()
+    assert get_task_tags(s, "t1") == ["🔥urgent", "📅today", "work"]
+
+
 def test_sync_persists_repeat_flag(tmp_path: Path) -> None:
     """Tasks with a repeatFlag from TickTick land in the local mirror's
     repeat_flag column. Tasks without one stay NULL."""

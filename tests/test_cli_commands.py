@@ -388,3 +388,107 @@ def test_tag_delete_apply_strips_tag(store, no_sync, httpx_mock) -> None:
     assert _run(["tag", "delete", "doomed", "--apply"]) == 0
     body = json.loads(httpx_mock.get_request().content)
     assert body["tags"] == ["keep"]
+
+
+# ---- Emoji tags across CLI handlers -----------------------------------------
+#
+# Tags with emojis are real TickTick data — the UI lets you create them and
+# the API accepts them. These tests pin the argv → mirror → HTTP body path
+# end-to-end, so a future change to encoding/decoding doesn't silently
+# corrupt them. Storage-level and matching-level guarantees are covered in
+# test_tags.py; what this section adds is the *handler* layer, where argv
+# parsing, mirror reads, payload assembly, and httpx serialization all
+# meet.
+
+
+def test_tag_add_emoji_to_existing_task(store, no_sync, httpx_mock) -> None:
+    """Adding an emoji tag from argv lands in the API payload as a
+    literal code point (json.loads on the request body reconstructs it),
+    and the merge with existing tags preserves order."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1", tags=["work"])
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+
+    assert _run(["tag", "add", "t1", "🔥urgent"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["tags"] == ["work", "🔥urgent"]
+
+
+def test_tag_remove_emoji_from_task(store, no_sync, httpx_mock) -> None:
+    """Removing an emoji tag picks the right one out of the existing
+    list — the matched tag is identified by literal-string equality."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1", tags=["work", "🔥urgent", "📅today"])
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+
+    assert _run(["tag", "remove", "t1", "🔥urgent"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["tags"] == ["work", "📅today"]
+
+
+def test_tag_rename_text_to_emoji_via_sweep(store, no_sync, httpx_mock) -> None:
+    """Renaming a text tag to an emoji tag (or vice versa) sweeps every
+    matching task. Each request body carries the substituted tag list
+    with the emoji intact."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1", tags=["urgent"])
+    _seed_task(store, "t2", "p1", tags=["urgent", "work"])
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t2",
+        json={"id": "t2", "projectId": "p1"},
+    )
+
+    assert _run(["tag", "rename", "urgent", "🔥urgent", "--apply"]) == 0
+    bodies = [json.loads(r.content) for r in httpx_mock.get_requests()]
+    tag_lists = sorted([b["tags"] for b in bodies], key=lambda x: len(x))
+    assert tag_lists == [["🔥urgent"], ["🔥urgent", "work"]]
+
+
+def test_tag_delete_emoji_strips_only_that_tag(store, no_sync, httpx_mock) -> None:
+    """Deleting an emoji tag sweeps every task carrying it and leaves
+    other tags — including other emoji tags — untouched."""
+    _seed_project(store, "p1", "Work")
+    _seed_task(store, "t1", "p1", tags=["🔥urgent", "📅today"])
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/t1",
+        json={"id": "t1", "projectId": "p1"},
+    )
+
+    assert _run(["tag", "delete", "🔥urgent", "--apply"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["tags"] == ["📅today"]
+
+
+def test_add_task_with_emoji_tag_propagates_to_api(
+    store, no_sync, httpx_mock
+) -> None:
+    """The `add` command's --tag accepts emoji argv and the literal code
+    point reaches the create-task payload. Closes the loop on `ticktick-cli
+    add ... --tag 🔥urgent` actually creating a task with that tag."""
+    _seed_project(store, "p1", "Work")
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task",
+        json={"id": "new1", "projectId": "p1", "title": "Pay bills",
+              "tags": ["🔥urgent", "💰finance"]},
+    )
+
+    assert _run(["add", "Pay bills", "--project", "Work",
+                 "--tag", "🔥urgent", "--tag", "💰finance"]) == 0
+    body = json.loads(httpx_mock.get_request().content)
+    assert body["tags"] == ["🔥urgent", "💰finance"]
