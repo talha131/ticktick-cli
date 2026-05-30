@@ -33,5 +33,15 @@
          "modifiedTime": "2026-05-20T00:00:00+0000"}
       ]
     }
-  }
+  },
+  "completed_tasks": [
+    {"id": "c1", "title": "File grade reports", "projectId": "p1",
+     "status": 2, "priority": 5,
+     "completedTime": "2026-05-25T17:30:00+0000",
+     "modifiedTime": "2026-05-25T17:30:00+0000"},
+    {"id": "c2", "title": "Send investor update", "projectId": "p2",
+     "status": 2, "priority": 3,
+     "completedTime": "2026-05-22T12:00:00+0000",
+     "modifiedTime": "2026-05-22T12:00:00+0000"}
+  ]
 }

@@ -246,6 +246,50 @@ def test_update_task_clears_tags_with_empty_list(httpx_mock) -> None:
     assert body["tags"] == []
 
 
+def test_list_completed_tasks_posts_filter_body(httpx_mock) -> None:
+    """All three filter keys land in the request body verbatim, and the
+    JSON array response is returned unwrapped."""
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/completed",
+        json=[
+            {"id": "c1", "projectId": "p1", "title": "Old thing",
+             "status": 2, "completedTime": "2026-05-04T23:58:20.000+0000"},
+            {"id": "c2", "projectId": "p1", "title": "Older thing",
+             "status": 2, "completedTime": "2026-05-02T08:12:00.000+0000"},
+        ],
+    )
+    client = TickTickClient(auth=StubAuth())
+    out = client.list_completed_tasks(
+        project_ids=["p1"],
+        start_date="2026-05-01T00:00:00+0000",
+        end_date="2026-05-30T23:59:59+0000",
+    )
+    assert len(out) == 2 and out[0]["id"] == "c1"
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body == {
+        "projectIds": ["p1"],
+        "startDate": "2026-05-01T00:00:00+0000",
+        "endDate": "2026-05-30T23:59:59+0000",
+    }
+
+
+def test_list_completed_tasks_omits_optional_fields_when_none(httpx_mock) -> None:
+    """Passing no filters sends an empty body — the API accepts it and
+    we don't want to invent a default range here (the caller decides)."""
+    httpx_mock.add_response(
+        method="POST",
+        url="https://api.ticktick.com/open/v1/task/completed",
+        json=[],
+    )
+    client = TickTickClient(auth=StubAuth())
+    client.list_completed_tasks()
+    import json as _json
+    body = _json.loads(httpx_mock.get_request().content)
+    assert body == {}
+
+
 def test_update_task_omits_tags_when_none(httpx_mock) -> None:
     httpx_mock.add_response(
         method="POST",
