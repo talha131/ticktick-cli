@@ -60,18 +60,41 @@ class TickTickClient:
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.auth.get_access_token_sync()}"}
 
-    def list_projects(self) -> list[dict[str, Any]]:
-        r = httpx.get(f"{self.base_url}/project", headers=self._headers())
+    def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        json: Any | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> httpx.Response:
+        """Single HTTP entry point for the TickTick client.
+
+        For now this is a pure refactor — all eight public methods
+        funnel through here without behaviour change. The retry policy
+        is layered on in a later commit; see
+        ``docs/superpowers/specs/2026-05-31-retry-with-backoff-design.md``
+        for the design.
+        """
+        r = httpx.request(
+            method,
+            url,
+            headers=self._headers(),
+            json=json,
+            params=params,
+        )
         r.raise_for_status()
+        return r
+
+    def list_projects(self) -> list[dict[str, Any]]:
+        r = self._request("GET", f"{self.base_url}/project")
         return r.json()
 
     def get_project_data(self, project_id: str) -> dict[str, Any]:
         """Returns {project, tasks, columns}. NOTE: per TickTick's API, this
         endpoint returns only ACTIVE tasks — historical completions are
         served from POST /open/v1/task/completed."""
-        r = httpx.get(f"{self.base_url}/project/{project_id}/data",
-                      headers=self._headers())
-        r.raise_for_status()
+        r = self._request("GET", f"{self.base_url}/project/{project_id}/data")
         return r.json()
 
     def create_task(
@@ -108,9 +131,7 @@ class TickTickClient:
             payload["reminders"] = reminders
         if repeat_flag is not None:
             payload["repeatFlag"] = repeat_flag
-        r = httpx.post(f"{self.base_url}/task", headers=self._headers(),
-                       json=payload)
-        r.raise_for_status()
+        r = self._request("POST", f"{self.base_url}/task", json=payload)
         return r.json()
 
     def update_task(
@@ -154,22 +175,18 @@ class TickTickClient:
             repeat_flag=repeat_flag,
             tags=tags,
         )
-        r = httpx.post(
-            f"{self.base_url}/task/{task_id}",
-            headers=self._headers(),
-            json=payload,
+        r = self._request(
+            "POST", f"{self.base_url}/task/{task_id}", json=payload,
         )
-        r.raise_for_status()
         return r.json()
 
     def complete_task(self, project_id: str, task_id: str) -> None:
         """POST /open/v1/project/{project_id}/task/{task_id}/complete.
         TickTick returns 200 with empty body on success."""
-        r = httpx.post(
+        self._request(
+            "POST",
             f"{self.base_url}/project/{project_id}/task/{task_id}/complete",
-            headers=self._headers(),
         )
-        r.raise_for_status()
 
     def delete_task(self, project_id: str, task_id: str) -> None:
         """DELETE /open/v1/project/{project_id}/task/{task_id}. TickTick
@@ -179,11 +196,10 @@ class TickTickClient:
         (moves to Trash) or hard delete. TickTick's UI uses a Trash
         folder with 30-day retention; the API most likely follows the
         same path, but it's not contractually guaranteed."""
-        r = httpx.delete(
+        self._request(
+            "DELETE",
             f"{self.base_url}/project/{project_id}/task/{task_id}",
-            headers=self._headers(),
         )
-        r.raise_for_status()
 
     def list_completed_tasks(
         self,
@@ -212,12 +228,9 @@ class TickTickClient:
             payload["startDate"] = start_date
         if end_date is not None:
             payload["endDate"] = end_date
-        r = httpx.post(
-            f"{self.base_url}/task/completed",
-            headers=self._headers(),
-            json=payload,
+        r = self._request(
+            "POST", f"{self.base_url}/task/completed", json=payload,
         )
-        r.raise_for_status()
         return r.json()
 
     def move_task(
@@ -236,9 +249,9 @@ class TickTickClient:
             "fromProjectId": from_project_id,
             "toProjectId": to_project_id,
         }]
-        r = httpx.post(f"{self.base_url}/task/move",
-                       headers=self._headers(), json=payload)
-        r.raise_for_status()
+        r = self._request(
+            "POST", f"{self.base_url}/task/move", json=payload,
+        )
         # raise_for_status() only guards HTTP codes; a 200 with an empty
         # array would still IndexError. Return {} so callers get a
         # predictable shape regardless of API quirks.
