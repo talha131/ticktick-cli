@@ -7,6 +7,11 @@ OpenAPI docs for the full surface."""
 from __future__ import annotations
 from typing import Any, Protocol
 import httpx
+import random
+import sys
+import time
+from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 
 BASE_URL = "https://api.ticktick.com/open/v1"
 
@@ -48,6 +53,131 @@ def build_update_payload(
     return payload
 
 
+@dataclass(frozen=True)
+class _RetryPolicy:
+    """Retry behaviour for TickTickClient._request.
+
+    schedule: base delays in seconds between attempts (initial→1, 1→2,
+        2→3). Length determines the max retries — 3 entries = 3
+        retries = 4 total attempts.
+    jitter: each delay multiplied by uniform(1 - jitter, 1 + jitter).
+    wall_clock_cap: cumulative elapsed seconds beyond which no further
+        retry is attempted. Honoured by _compute_delay (returns None).
+    """
+    schedule: tuple[float, ...] = (0.5, 2.0, 8.0)
+    jitter: float = 0.25
+    wall_clock_cap: float = 13.0
+
+
+def _compute_delay(
+    policy: _RetryPolicy,
+    *,
+    attempt: int,
+    elapsed: float,
+    retry_after: float | None,
+) -> float | None:
+    """Compute the delay before the next retry, or None to abort.
+
+    attempt is 1-indexed — attempt=1 means "we just finished the first
+    try; how long to wait before the second?". The corresponding
+    schedule entry is policy.schedule[attempt - 1].
+
+    If retry_after is provided (from a 429 response), it overrides the
+    schedule value but is still subject to BOTH the attempt-count cap
+    and the wall_clock_cap. The attempt cap applies regardless of
+    retry_after — spec §3.2 says max retries and wall-clock are
+    "whichever fires first."
+    """
+    if attempt < 1 or attempt > len(policy.schedule):
+        return None
+    if retry_after is not None:
+        candidate = float(retry_after)
+    else:
+        base = policy.schedule[attempt - 1]
+        candidate = base * random.uniform(1.0 - policy.jitter, 1.0 + policy.jitter)
+    if elapsed + candidate > policy.wall_clock_cap:
+        return None
+    return candidate
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse an HTTP Retry-After header into seconds-from-now.
+
+    Per RFC 7231, the header is either a non-negative integer
+    (seconds) or an HTTP-date. Returns None on malformed input —
+    callers should fall back to the regular backoff schedule.
+    """
+    if value is None:
+        return None
+    s = value.strip()
+    if not s:
+        return None
+    try:
+        n = int(s)
+        return float(max(0, n))
+    except ValueError:
+        pass
+    try:
+        dt = parsedate_to_datetime(s)
+    except (TypeError, ValueError):
+        return None
+    if dt is None:
+        return None
+    seconds = dt.timestamp() - time.time()
+    return max(0.0, seconds)
+
+
+def _classify(exc: BaseException, method: str) -> bool:
+    """Return True iff the given exception is a transient failure that
+    we should retry for the given HTTP method.
+
+    Policy (see spec §3.1):
+    - Pre-send connection failures (ConnectError, ConnectTimeout)
+      retry on every method, including POST — the server never saw
+      the request, so replaying it is safe.
+    - Post-send timeouts (ReadTimeout, WriteTimeout) retry only on
+      GET and DELETE. POSTs do not retry because TickTick's behaviour
+      on a replayed update is undocumented.
+    - 429 retries on every method (with Retry-After honoured upstream).
+    - 5xx retries on GET and DELETE only — POST might have processed.
+    - Everything else (4xx ≠ 429, unknown exceptions) is not retried.
+    """
+    if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+        return True
+    if isinstance(exc, (httpx.ReadTimeout, httpx.WriteTimeout)):
+        return method in ("GET", "DELETE")
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code == 429:
+            return True
+        if 500 <= code < 600:
+            return method in ("GET", "DELETE")
+        return False
+    return False
+
+
+def _emit_retry_warning(
+    *,
+    attempt: int,
+    total: int,
+    delay: float,
+    exc: BaseException,
+    retry_after_used: bool,
+) -> None:
+    """Emit one stderr line describing the retry decision. Mirrors the
+    existing _resync_mirror_safe warning style: a single 'warning:' line
+    so scripted callers can grep/ignore it without parsing JSON-on-stdout."""
+    msg = str(exc)
+    if len(msg) > 120:
+        msg = msg[:117] + "..."
+    suffix = " (server Retry-After)" if retry_after_used else ""
+    print(
+        f"warning: retry {attempt}/{total} after {delay:.1f}s{suffix} — "
+        f"{type(exc).__name__}: {msg}",
+        file=sys.stderr,
+    )
+
+
 class _AuthLike(Protocol):
     def get_access_token_sync(self) -> str: ...
 
@@ -67,24 +197,67 @@ class TickTickClient:
         *,
         json: Any | None = None,
         params: dict[str, Any] | None = None,
+        _policy: _RetryPolicy | None = None,
     ) -> httpx.Response:
-        """Single HTTP entry point for the TickTick client.
+        """Single HTTP entry point.
 
-        For now this is a pure refactor — all eight public methods
-        funnel through here without behaviour change. The retry policy
-        is layered on in a later commit; see
-        ``docs/superpowers/specs/2026-05-31-retry-with-backoff-design.md``
-        for the design.
+        Applies auth headers and retry-with-backoff per
+        ``docs/superpowers/specs/2026-05-31-retry-with-backoff-design.md``:
+        GET/DELETE retry on pre-send + post-send transient failures;
+        POST retries only on pre-send. HTTP 429 retries on every
+        method with ``Retry-After`` honoured. Wall-clock cap ~13s.
+        On exhaustion, the original exception is raised unchanged.
+
+        ``_policy`` is a test-only hook for injecting alternate
+        schedules; production callers should leave it at the default.
         """
-        r = httpx.request(
-            method,
-            url,
-            headers=self._headers(),
-            json=json,
-            params=params,
-        )
-        r.raise_for_status()
-        return r
+        policy = _policy or _RetryPolicy()
+        attempt = 1  # how many tries have happened so far
+        started = time.monotonic()
+        while True:
+            try:
+                kwargs: dict[str, Any] = {"headers": self._headers()}
+                if json is not None:
+                    kwargs["json"] = json
+                if params is not None:
+                    kwargs["params"] = params
+                if method == "GET":
+                    r = httpx.get(url, **kwargs)
+                elif method == "POST":
+                    r = httpx.post(url, **kwargs)
+                elif method == "DELETE":
+                    r = httpx.delete(url, **kwargs)
+                else:
+                    raise ValueError(f"unsupported HTTP method: {method!r}")
+                r.raise_for_status()
+                return r
+            except httpx.HTTPError as exc:
+                if not _classify(exc, method):
+                    raise
+                # Compute the delay (handles wall-clock cap + Retry-After)
+                retry_after: float | None = None
+                if isinstance(exc, httpx.HTTPStatusError):
+                    retry_after = _parse_retry_after(
+                        exc.response.headers.get("Retry-After"),
+                    )
+                elapsed = time.monotonic() - started
+                delay = _compute_delay(
+                    policy,
+                    attempt=attempt,
+                    elapsed=elapsed,
+                    retry_after=retry_after,
+                )
+                if delay is None:
+                    raise
+                _emit_retry_warning(
+                    attempt=attempt,
+                    total=len(policy.schedule),
+                    delay=delay,
+                    exc=exc,
+                    retry_after_used=retry_after is not None,
+                )
+                time.sleep(delay)
+                attempt += 1
 
     def list_projects(self) -> list[dict[str, Any]]:
         r = self._request("GET", f"{self.base_url}/project")
