@@ -363,6 +363,34 @@ response schemas, the Task object's field list) is included in this
 repo at [`docs/ticktick-openapi.md`](docs/ticktick-openapi.md). It's
 the canonical source for anything not covered in this README.
 
+## Reliability
+
+Every TickTick API call goes through a bounded retry loop in
+`TickTickClient._request`. Transient failures (TLS handshake timeouts,
+DNS errors, HTTP 429 with `Retry-After`) self-recover within ~13
+seconds without surfacing to the calling command.
+
+- **GET and DELETE**: retry on `ConnectError`, `ConnectTimeout`,
+  `ReadTimeout`, `WriteTimeout`, HTTP 429 (with `Retry-After`
+  honoured), and HTTP 5xx.
+- **POST**: retry only on pre-send connection failures
+  (`ConnectError`, `ConnectTimeout`) and HTTP 429. POST-send timeouts
+  and 5xx are surfaced unchanged — TickTick's behaviour on a replayed
+  task update is undocumented, so we don't guess.
+- **Schedule**: 0.5s / 2s / 8s ±25% jitter, max 3 retries (4 total
+  attempts), wall-clock cap ~13s. The cap fires first if `Retry-After`
+  on a 429 would push past it; the original exception is raised.
+
+Each retry attempt prints one line to stderr in the form
+`warning: retry 1/3 after 0.5s — ConnectTimeout: <message>`. Stdout
+(JSON output from `candidates` / `recent`) is untouched. To silence
+retry chatter in scripts, redirect with `2>/dev/null`; there is no
+in-CLI flag.
+
+If the retry budget is exhausted, the original exception is surfaced
+to the caller — the post-write `_resync_mirror_safe` path still
+absorbs sync-side failures (see Known quirks).
+
 ## Development
 
 ```bash

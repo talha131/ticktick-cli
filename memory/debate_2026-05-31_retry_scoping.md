@@ -118,6 +118,15 @@ source-of-truth, the former is the safer default.
 
 ## Next step
 
-Feed this conclusion into a brainstorming / spec design session for
-the retry implementation. The spec only needs to be a few pages —
-the design space is now narrow.
+**Shipped** in commits `882b234..8a9d3cb` on 2026-05-31:
+
+1. `882b234` — Extract `TickTickClient._request` helper (pure refactor).
+2. `f4a784a` — Retry transient TickTick failures with bounded backoff.
+3. `8a9d3cb` — Document retry policy in README and CLAUDE.md.
+
+Implementation plan: `docs/superpowers/plans/2026-05-31-retry-with-backoff.md`.
+
+Followups (not blocked, not scheduled): re-evaluate #4 (batch tag ops)
+and #3b (`BEGIN IMMEDIATE` retry) once a week of post-fix data is
+available. Track them in the same memory file with a status update if
+they ever happen.

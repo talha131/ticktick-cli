@@ -184,6 +184,11 @@ ticktick-cli/
   monkeypatches `Syncer.run` to a no-op so tests can pre-populate the
   mirror directly. Tests that need to verify a sync ran (e.g.
   finally-block tests) install a counting wrapper instead.
+- Retry tests in `tests/test_ticktick.py` monkeypatch
+  `ticktick_cli.ticktick.time.sleep` to a recording stub so they don't
+  actually wait. Use the `no_sleep` / `no_jitter` fixtures defined in
+  that file; reach for them whenever a new test exercises code that
+  goes through `TickTickClient._request`.
 
 **Code:**
 - Pure functions where possible. I/O at module boundaries.
@@ -269,6 +274,18 @@ updating the candidate flow.
 A transient empty `list_projects()` response would, naively, cause
 the sweep to archive every pending task. `sync.py` raises early if
 the project list is empty, triggering ROLLBACK. Keep this guard.
+
+**`TickTickClient._request` retries transient HTTP failures.** All
+eight client methods funnel through `_request`, which applies a
+method-aware retry policy. GET/DELETE retry on pre-send connection
+failures, post-send timeouts, HTTP 429, and HTTP 5xx. POST retries
+on pre-send failures (`ConnectError` / `ConnectTimeout`) and HTTP 429
+only — `ReadTimeout` / `WriteTimeout` / 5xx surface unchanged because
+TickTick's behaviour on a replayed task update is undocumented and we
+don't guess. 429 honours `Retry-After`. Schedule: 0.5/2/8s ±25%
+jitter, max 3 retries, ~13s wall-clock cap. Each retry emits a stderr
+warning mirroring the `_resync_mirror_safe` style. Full design in
+`docs/superpowers/specs/2026-05-31-retry-with-backoff-design.md`.
 
 ## Testing locally
 
